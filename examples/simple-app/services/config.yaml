@@ -1,0 +1,82 @@
+app:
+  name: simple-app
+  version: 1.0.0
+  environment: development
+
+server:
+  http:
+    enabled: true
+    port: 8080
+    host: 0.0.0.0
+  grpc:
+    enabled: false
+    port: 9090
+    host: 0.0.0.0
+  websocket:
+    enabled: false
+    port: 8081
+    host: 0.0.0.0
+
+database:
+  - name: primary
+    driver: postgres
+    host: localhost
+    port: 5432
+    username: postgres
+    password: postgres
+    database: mydb
+    ssl_mode: disable
+    max_open_conns: 25
+    max_idle_conns: 5
+    max_lifetime_seconds: 300
+
+redis:
+  - name: cache
+    addr: localhost:6379
+    password: ""
+    db: 0
+
+kafka:
+  brokers:
+    - localhost:9092
+  group_id: simple-app-group
+
+plugins:
+  stripe:
+    enabled: false
+    config:
+      api_key: "sk_test_..."
+
+  sendgrid:
+    enabled: false
+    config:
+      api_key: "SG...."
+      from_email: "noreply@example.com"
+      from_name: "Simple App"
+
+  s3:
+    enabled: false
+    config:
+      access_key: "AWS_ACCESS_KEY"
+      secret_key: "AWS_SECRET_KEY"
+      region: "us-east-1"
+      bucket: "my-bucket"
+
+  cache:
+    enabled: true
+    config:
+      addr: localhost:6379
+      password: ""
+      db: 0
+      default_ttl: 3600
+      key_prefix: "app:"
+
+cron:
+  jobs:
+    - name: example-job
+      schedule: "*/5 * * * *" # Every 5 minutes
+      service_name: hello
+      enabled: false
+      timeout: 30s
+      request:
+        action: "scheduled_task"
