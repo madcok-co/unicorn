@@ -18,6 +18,20 @@ import (
 	httpAdapter "github.com/madcok-co/unicorn/core/pkg/adapters/http"
 )
 
+// ANSI color codes
+const (
+	colorReset   = "\033[0m"
+	colorRed     = "\033[31m"
+	colorGreen   = "\033[32m"
+	colorYellow  = "\033[33m"
+	colorBlue    = "\033[34m"
+	colorMagenta = "\033[35m"
+	colorCyan    = "\033[36m"
+	colorWhite   = "\033[37m"
+	colorBold    = "\033[1m"
+	colorDim     = "\033[2m"
+)
+
 // App adalah main application struct
 type App struct {
 	name    string
@@ -408,6 +422,10 @@ func (a *App) runServiceMode(serviceNames []string) error {
 
 // runLegacyMode runs in legacy single-registry mode
 func (a *App) runLegacyMode() error {
+	// Print startup banner
+	fmt.Printf("%s%s🦄 Starting %s v%s%s\n", colorBold, colorMagenta, a.name, a.version, colorReset)
+	fmt.Printf("%s════════════════════════════════════════%s\n", colorDim, colorReset)
+
 	// Setup signal handling
 	sigCh := make(chan os.Signal, 1)
 	signal.Notify(sigCh, syscall.SIGINT, syscall.SIGTERM)
@@ -427,6 +445,25 @@ func (a *App) runLegacyMode() error {
 			}
 		}()
 
+		// Print HTTP info
+		scheme := "http"
+		if a.httpAdapter.IsTLS() {
+			scheme = "https"
+		}
+		fmt.Printf("%s✓%s %sHTTP Server:%s %s%s://%s%s\n",
+			colorGreen, colorReset,
+			colorBold, colorReset,
+			colorCyan, scheme, a.httpAdapter.Address(), colorReset)
+
+		// Print registered routes
+		routes := a.registry.HTTPRoutes()
+		if len(routes) > 0 {
+			fmt.Printf("\n  %sRegistered routes:%s\n", colorDim, colorReset)
+			for route := range routes {
+				fmt.Printf("  %s→%s %s\n", colorBlue, colorReset, route)
+			}
+		}
+
 		if a.adapters.Logger != nil {
 			a.adapters.Logger.Info("HTTP server started", "address", a.httpAdapter.Address())
 		}
@@ -443,10 +480,22 @@ func (a *App) runLegacyMode() error {
 			}
 		}()
 
+		topics := a.registry.MessageTopics()
+		fmt.Printf("%s✓%s %sMessage Broker:%s %s%s%s\n",
+			colorGreen, colorReset,
+			colorBold, colorReset,
+			colorCyan, a.adapters.Broker.Name(), colorReset)
+		if len(topics) > 0 {
+			fmt.Printf("\n  %sSubscribed topics:%s\n", colorDim, colorReset)
+			for _, topic := range topics {
+				fmt.Printf("  %s→%s %s\n", colorBlue, colorReset, topic)
+			}
+		}
+
 		if a.adapters.Logger != nil {
 			a.adapters.Logger.Info("Message broker started",
 				"broker", a.adapters.Broker.Name(),
-				"topics", a.registry.MessageTopics())
+				"topics", topics)
 		}
 	}
 
@@ -460,19 +509,41 @@ func (a *App) runLegacyMode() error {
 			}
 		}()
 
+		schedules := a.registry.CronSchedules()
+		fmt.Printf("%s✓%s %sCron Scheduler:%s %senabled%s\n",
+			colorGreen, colorReset,
+			colorBold, colorReset,
+			colorCyan, colorReset)
+		if len(schedules) > 0 {
+			fmt.Printf("\n  %sScheduled jobs:%s\n", colorDim, colorReset)
+			for _, schedule := range schedules {
+				fmt.Printf("  %s→%s %s\n", colorBlue, colorReset, schedule)
+			}
+		}
+
 		if a.adapters.Logger != nil {
 			a.adapters.Logger.Info("Cron scheduler started",
-				"schedules", a.registry.CronSchedules())
+				"schedules", schedules)
 		}
 	}
+
+	fmt.Printf("%s════════════════════════════════════════%s\n", colorDim, colorReset)
+	fmt.Printf("%s✓ Application ready!%s Press %sCtrl+C%s to stop\n",
+		colorGreen+colorBold, colorReset,
+		colorYellow, colorReset)
+	fmt.Println()
 
 	// Wait for shutdown signal or error
 	select {
 	case sig := <-sigCh:
+		fmt.Printf("\n%s⚠ Received shutdown signal:%s %s\n",
+			colorYellow, colorReset, sig.String())
 		if a.adapters.Logger != nil {
 			a.adapters.Logger.Info("Received shutdown signal", "signal", sig.String())
 		}
 	case err := <-errCh:
+		fmt.Printf("\n%s✗ Adapter error:%s %v\n",
+			colorRed, colorReset, err)
 		if a.adapters.Logger != nil {
 			a.adapters.Logger.Error("Adapter error", "error", err)
 		}
@@ -484,6 +555,8 @@ func (a *App) runLegacyMode() error {
 
 // Shutdown gracefully shuts down the application
 func (a *App) Shutdown() error {
+	fmt.Printf("%s🛑 Shutting down gracefully...%s\n", colorYellow, colorReset)
+
 	// Cancel context to stop all adapters
 	a.cancel()
 
@@ -521,6 +594,8 @@ func (a *App) Shutdown() error {
 	if a.adapters.Logger != nil {
 		_ = a.adapters.Logger.Sync()
 	}
+
+	fmt.Printf("%s✓ Shutdown complete. Goodbye! 👋%s\n", colorGreen+colorBold, colorReset)
 
 	return nil
 }

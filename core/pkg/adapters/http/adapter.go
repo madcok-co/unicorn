@@ -93,9 +93,14 @@ func (a *Adapter) Start(ctx context.Context) error {
 		}
 		method, path := parts[0], parts[1]
 
+		// Convert :param to {param} for Go 1.22+ ServeMux
+		convertedPath := convertPathParams(path)
+
 		// Create handler for this route
 		httpHandler := a.createHandler(h, method, path)
-		mux.HandleFunc(path, httpHandler)
+		// Register with method pattern for Go 1.22+ ServeMux
+		pattern := fmt.Sprintf("%s %s", method, convertedPath)
+		mux.HandleFunc(pattern, httpHandler)
 	}
 
 	// Apply global middlewares
@@ -193,11 +198,8 @@ func (a *Adapter) createHandler(h *handler.Handler, method, pattern string) http
 	executor := handler.NewExecutor(h)
 
 	return func(w http.ResponseWriter, r *http.Request) {
-		// Check method
-		if r.Method != method && method != "*" {
-			http.Error(w, "Method not allowed", http.StatusMethodNotAllowed)
-			return
-		}
+		// Method checking is handled by ServeMux pattern matching (Go 1.22+)
+		// No need to check method here
 
 		// Limit body size
 		if a.config.MaxBodySize > 0 {
@@ -207,12 +209,25 @@ func (a *Adapter) createHandler(h *handler.Handler, method, pattern string) http
 		// Create unicorn context
 		ctx := ucontext.New(r.Context())
 
+		// Extract path parameters using Go 1.22+ PathValue
+		params := make(map[string]string)
+		// Extract param names from pattern
+		patternParts := strings.Split(pattern, "/")
+		for _, part := range patternParts {
+			if strings.HasPrefix(part, ":") {
+				paramName := strings.TrimPrefix(part, ":")
+				if value := r.PathValue(paramName); value != "" {
+					params[paramName] = value
+				}
+			}
+		}
+
 		// Build request
 		req := &ucontext.Request{
 			Method:      r.Method,
 			Path:        r.URL.Path,
 			Headers:     make(map[string]string),
-			Params:      a.paramExtractor(pattern, r.URL.Path),
+			Params:      params,
 			Query:       make(map[string]string),
 			TriggerType: "http",
 		}
@@ -326,8 +341,24 @@ func (a *Adapter) writeError(w http.ResponseWriter, err error) {
 	})
 }
 
-// defaultParamExtractor extracts path params like /users/:id
+// convertPathParams converts :param syntax to {param} for Go 1.22+ ServeMux
+func convertPathParams(path string) string {
+	// Convert /users/:id to /users/{id}
+	parts := strings.Split(path, "/")
+	for i, part := range parts {
+		if strings.HasPrefix(part, ":") {
+			paramName := strings.TrimPrefix(part, ":")
+			parts[i] = "{" + paramName + "}"
+		}
+	}
+	return strings.Join(parts, "/")
+}
+
+// defaultParamExtractor extracts path params from request
+// Now using Go 1.22+ PathValue method
 func defaultParamExtractor(pattern, path string) map[string]string {
+	// This function is now less critical since Go 1.22+ ServeMux
+	// provides r.PathValue() directly, but kept for backward compatibility
 	params := make(map[string]string)
 
 	patternParts := strings.Split(pattern, "/")
