@@ -1,17 +1,55 @@
 # Unicorn Framework - Complete Examples
 
-This directory contains comprehensive examples demonstrating all features of the Unicorn Framework.
+This directory contains comprehensive examples demonstrating all features of the Unicorn Framework with full infrastructure setup using Docker Compose.
 
 ## 📚 Examples Overview
 
 | Example | Description | Port | Features Demonstrated |
 |---------|-------------|------|----------------------|
-| **main.go** | Complete CRUD API | 8080 | HTTP handlers, validation, caching, query params, path params, error handling |
-| **middleware-example.go** | Middleware usage | 8081 | CORS, Recovery, Timeout, Rate Limiting, Authentication |
-| **custom-services-example.go** | Custom service injection | 8082 | DI, singleton services, factory services, business logic separation |
-| **resilience-example.go** | Resilience patterns | 8083 | Circuit Breaker, Retry with backoff, failure handling |
+| **main.go** | Basic CRUD API | 8080 | HTTP handlers, caching, query params, path params, message broker |
+| **main_enhanced.go** | Enhanced with Security | 8080 | JWT auth, password hashing, protected endpoints, env config |
 
 ## 🚀 Quick Start
+
+### Prerequisites
+
+- Go 1.21+
+- Docker & Docker Compose
+- Make (optional, for convenience)
+
+### Setup with Docker Compose
+
+The easiest way to get started is using Docker Compose which sets up all required infrastructure:
+
+```bash
+# 1. Setup environment
+make setup
+# or manually: cp .env.example .env
+
+# 2. Start all services (PostgreSQL, Redis, Kafka, etc.)
+make up
+
+# 3. Run the application
+make run
+# or: go run main_enhanced.go
+```
+
+That's it! The application will start with all infrastructure ready.
+
+### Available Services
+
+After running `make up`, you'll have access to:
+
+| Service | URL | Credentials |
+|---------|-----|-------------|
+| **PostgreSQL** | localhost:5432 | unicorn / unicorn_pass |
+| **Redis** | localhost:6379 | (no password) |
+| **Kafka** | localhost:9092 | - |
+| **Kafka UI** | http://localhost:8090 | - |
+| **Prometheus** | http://localhost:9090 | - |
+| **Grafana** | http://localhost:3000 | admin / admin |
+| **Jaeger UI** | http://localhost:16686 | - |
+| **Adminer (DB UI)** | http://localhost:8081 | - |
 
 ### Run the Main Example
 
@@ -20,48 +58,83 @@ cd core/examples/complete-features
 go run main.go
 ```
 
-Then test the endpoints:
+### Test the Enhanced Example
 
 ```bash
-# Health check
-curl http://localhost:8080/health
-
-# List products
-curl http://localhost:8080/products
-
-# Create product
-curl -X POST http://localhost:8080/products \
+# 1. Register a new user
+curl -X POST http://localhost:8080/auth/register \
   -H "Content-Type: application/json" \
   -d '{
+    "username": "john_doe",
+    "email": "john@example.com",
+    "password": "SecurePass123!"
+  }'
+
+# 2. Login to get JWT token
+TOKEN=$(curl -X POST http://localhost:8080/auth/login \
+  -H "Content-Type: application/json" \
+  -d '{
+    "email": "john@example.com",
+    "password": "SecurePass123!"
+  }' | jq -r '.token')
+
+echo "Token: $TOKEN"
+
+# 3. Verify token
+curl -X POST http://localhost:8080/auth/verify \
+  -H "Authorization: Bearer $TOKEN"
+
+# 4. Get user profile
+curl http://localhost:8080/auth/profile \
+  -H "Authorization: Bearer $TOKEN"
+
+# 5. Create product (protected endpoint)
+curl -X POST http://localhost:8080/products \
+  -H "Content-Type: application/json" \
+  -H "Authorization: Bearer $TOKEN" \
+  -d '{
     "name": "Laptop",
-    "description": "High-performance laptop for developers",
+    "description": "High-performance laptop",
     "price": 999.99,
     "stock": 50
   }'
 
-# Get product by ID
-curl http://localhost:8080/products/prod-123
+# 6. List products
+curl http://localhost:8080/products
 
-# Search products
-curl "http://localhost:8080/products/search?q=laptop&category=electronics"
+# 7. Get product by ID
+curl http://localhost:8080/products/prod_123
 
-# Update product
-curl -X PUT http://localhost:8080/products/prod-123 \
-  -H "Content-Type: application/json" \
-  -d '{
-    "name": "Gaming Laptop",
-    "description": "High-end gaming laptop",
-    "price": 1499.99,
-    "stock": 30
-  }'
-
-# Delete product
-curl -X DELETE http://localhost:8080/products/prod-123
+# 8. Health check
+curl http://localhost:8080/health
 ```
 
-## 📖 Detailed Examples
+### Using Make Commands
 
-### 1. Complete CRUD API (main.go)
+```bash
+# View all available commands
+make help
+
+# Start infrastructure
+make up
+
+# View logs
+make logs
+
+# Stop all services
+make down
+
+# Test endpoints
+make curl-health
+make curl-products
+
+# Clean up everything (removes volumes)
+make clean
+```
+
+## 📖 Examples Detailed
+
+### 1. Basic Example (main.go)
 
 **Features:**
 - ✅ CRUD operations (Create, Read, Update, Delete)
@@ -133,240 +206,95 @@ func ListProducts(ctx *context.Context) (map[string]interface{}, error) {
 }
 ```
 
-### 2. Middleware Examples (middleware-example.go)
+### 2. Enhanced Example (main_enhanced.go)
 
 **Features:**
-- ✅ CORS (Cross-Origin Resource Sharing)
-- ✅ Panic Recovery with stack traces
-- ✅ Request Timeout
-- ✅ Rate Limiting (per-IP)
-- ✅ Authentication (JWT, API Key)
-- ✅ Request/Response logging
+- ✅ **JWT Authentication** - Secure token-based auth
+- ✅ **Password Hashing** - bcrypt password hashing
+- ✅ **User Registration & Login** - Complete auth flow
+- ✅ **Token Verification** - JWT token validation
+- ✅ **Protected Endpoints** - Authentication required routes
+- ✅ **Environment Configuration** - .env file support
+- ✅ **Service Injection** - Custom services (passwordHasher, jwtAuth)
 
-**Run:**
-
-```bash
-go run middleware-example.go
-```
-
-**Test:**
+**Endpoints:**
 
 ```bash
-# Public endpoint (no auth)
-curl http://localhost:8081/public
+# Authentication
+POST   /auth/register    # Register new user
+POST   /auth/login       # Login and get JWT token
+POST   /auth/verify      # Verify JWT token
+GET    /auth/profile     # Get user profile (requires auth)
 
-# Protected endpoint (requires auth)
-curl http://localhost:8081/protected \
-  -H "Authorization: Bearer your-jwt-token"
+# Products (with auth)
+POST   /products         # Create product (requires auth)
+GET    /products         # List products
+GET    /products/:id     # Get product by ID
 
-# Slow endpoint (timeout demo)
-curl "http://localhost:8081/slow?duration=3s"
-
-# Panic recovery demo
-curl "http://localhost:8081/panic?panic=true"
-
-# Rate limited endpoint
-for i in {1..15}; do 
-  curl http://localhost:8081/ratelimited
-done
+# Health
+GET    /health           # Health check
 ```
 
-**Middleware Configuration:**
+**Example Usage:**
 
 ```go
-// CORS Middleware
-corsMiddleware := middleware.CORS(&middleware.CORSConfig{
-    AllowedOrigins:   []string{"*"},
-    AllowedMethods:   []string{"GET", "POST", "PUT", "DELETE"},
-    AllowedHeaders:   []string{"*"},
-    AllowCredentials: true,
-    MaxAge:           3600,
+// Password Hashing
+passwordHasher := hasher.NewPasswordHasher()
+hashedPassword, _ := passwordHasher.Hash("MyPassword123")
+err := passwordHasher.Verify("MyPassword123", hashedPassword)
+
+// JWT Authentication
+jwtAuth := auth.NewJWTAuth(auth.JWTConfig{
+    Secret:     []byte("your-secret-key"),
+    Expiration: 24 * time.Hour,
 })
 
-// Recovery Middleware
-recoveryMiddleware := middleware.Recovery(middleware.RecoveryConfig{
-    Logger:           logger,
-    StackTrace:       true,
+token, _ := jwtAuth.GenerateToken(map[string]interface{}{
+    "user_id": "123",
+    "email":   "user@example.com",
 })
 
-// Timeout Middleware
-timeoutMiddleware := middleware.Timeout(5 * time.Second)
-
-// Rate Limiting
-rateLimiter := ratelimit.NewMemoryRateLimiter(10, time.Minute)
-rateLimitMiddleware := middleware.RateLimit(middleware.RateLimitConfig{
-    RateLimiter: rateLimiter,
-    KeyFunc: func(ctx *context.Context) string {
-        return ctx.Request().Headers["X-Real-IP"]
-    },
-})
+claims, _ := jwtAuth.VerifyToken(token)
 ```
 
-### 3. Custom Service Injection (custom-services-example.go)
+## 💡 Additional Features Available
 
-**Features:**
-- ✅ Dependency Injection
-- ✅ Singleton services (shared across requests)
-- ✅ Factory services (new instance per request)
-- ✅ Custom business logic interfaces
-- ✅ Service composition
+While these examples focus on core features, Unicorn Framework also supports:
 
-**Run:**
-
-```bash
-go run custom-services-example.go
-```
-
-**Test:**
-
-```bash
-# Create order (uses email, payment, notification services)
-curl -X POST http://localhost:8082/orders \
-  -H "Content-Type: application/json" \
-  -d '{
-    "user_id": "user123",
-    "product_id": "prod456",
-    "quantity": 2,
-    "total_amount": 99.99
-  }'
-
-# Cancel order (refund via payment service)
-curl -X DELETE http://localhost:8082/orders/order-123
-
-# Send notification
-curl -X POST "http://localhost:8082/orders/order-123/notify?type=push"
-
-# Factory service example
-curl http://localhost:8082/factory
-```
-
-**Custom Services:**
-
+### Middleware (via HTTP adapter)
 ```go
-// Define your service interface
+// Available middleware in core/pkg/middleware:
+- CORS - Cross-origin resource sharing
+- Recovery - Panic recovery with stack traces  
+- Timeout - Request timeout handling
+- RateLimit - Rate limiting per IP/user
+- Health - Health check endpoints
+```
+
+### Custom Service Injection
+```go
+// Register your own services
 type EmailService interface {
     SendEmail(to, subject, body string) error
-    SendTemplateEmail(to, template string, data map[string]interface{}) error
 }
 
-// Implement the service
-type emailService struct {
-    from   string
-    apiKey string
-}
-
-func (s *emailService) SendEmail(to, subject, body string) error {
-    // Your implementation
-}
-
-// Register as singleton (same instance for all requests)
-emailSvc := NewEmailService("noreply@example.com", "api-key")
-app.RegisterService("email", emailSvc)
-
-// Register as factory (new instance per request)
-app.RegisterServiceFactory("requestLogger", func(ctx *context.Context) (any, error) {
-    return NewRequestLogger(ctx)
-})
+app.RegisterService("email", myEmailService)
 
 // Use in handlers
-func CreateOrder(ctx *context.Context, req CreateOrderRequest) (*Order, error) {
-    // Get injected services
-    emailSvc := ctx.GetService("email").(EmailService)
-    paymentSvc := ctx.GetService("payment").(PaymentService)
-    notificationSvc := ctx.GetService("notification").(NotificationService)
-    
-    // Use them
-    paymentResult, _ := paymentSvc.ProcessPayment(req.TotalAmount, "USD", "card")
-    emailSvc.SendEmail("user@example.com", "Order Confirmed", "...")
-    notificationSvc.SendPushNotification(req.UserID, "Order Placed", "...")
-    
-    return order, nil
-}
+emailSvc := ctx.GetService("email").(EmailService)
 ```
 
-### 4. Resilience Patterns (resilience-example.go)
-
-**Features:**
-- ✅ Circuit Breaker pattern
-- ✅ Retry with exponential backoff
-- ✅ Timeout handling
-- ✅ Failure rate simulation
-- ✅ Circuit breaker monitoring
-
-**Run:**
-
-```bash
-go run resilience-example.go
-```
-
-**Test:**
-
-```bash
-# Call external service (circuit breaker protection)
-for i in {1..10}; do 
-  curl http://localhost:8083/external
-  sleep 0.5
-done
-
-# Check circuit breaker status
-curl http://localhost:8083/status/circuit-breakers
-
-# Retry example
-curl http://localhost:8083/retry
-
-# Database query with CB + Retry
-curl http://localhost:8083/database
-
-# Set failure rate to 80% (for testing)
-curl -X POST "http://localhost:8083/testing/failure-rate?service=external&rate=0.8"
-
-# Reset circuit breaker
-curl -X POST "http://localhost:8083/circuit-breaker/reset?name=external"
-```
-
-**Circuit Breaker Usage:**
-
+### Resilience Patterns
 ```go
-// Create circuit breaker
-cb := resilience.NewCircuitBreaker(resilience.CircuitBreakerConfig{
-    Name:              "external-service",
-    MaxFailures:       3,              // Open after 3 failures
-    Timeout:           10 * time.Second, // Try again after 10s
-    HalfOpenRequests:  2,              // Allow 2 requests in half-open
-})
-
-// Use it
+// Circuit Breaker (in core/pkg/resilience)
+cb := resilience.NewCircuitBreaker(config)
 result, err := cb.Execute(func() (interface{}, error) {
     return externalService.Call()
 })
-```
 
-**Retry with Backoff:**
-
-```go
-retryConfig := resilience.RetryConfig{
-    MaxAttempts:     5,
-    InitialInterval: 100 * time.Millisecond,
-    MaxInterval:     2 * time.Second,
-    Multiplier:      2.0,
-    OnRetry: func(attempt int, err error) {
-        logger.Warn("retrying", "attempt", attempt, "error", err)
-    },
-}
-
+// Retry with exponential backoff
 result, err := resilience.Retry(retryConfig, func() (interface{}, error) {
     return unstableOperation()
-})
-```
-
-**Combined Pattern (CB + Retry):**
-
-```go
-// First apply circuit breaker, then retry
-result, err := circuitBreaker.Execute(func() (interface{}, error) {
-    return resilience.Retry(retryConfig, func() (interface{}, error) {
-        return database.Query(sql)
-    })
 })
 ```
 
