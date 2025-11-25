@@ -1,6 +1,7 @@
 package main
 
 import (
+	"encoding/json"
 	"fmt"
 	"log"
 	"os"
@@ -9,6 +10,7 @@ import (
 	httpAdapter "github.com/madcok-co/unicorn/core/pkg/adapters/http"
 	"github.com/madcok-co/unicorn/core/pkg/app"
 	ucontext "github.com/madcok-co/unicorn/core/pkg/context"
+	"github.com/madcok-co/unicorn/core/pkg/contracts"
 
 	// Adapters
 	memoryBroker "github.com/madcok-co/unicorn/core/pkg/adapters/broker/memory"
@@ -21,11 +23,14 @@ import (
 	"github.com/madcok-co/unicorn/core/pkg/adapters/security/hasher"
 	"github.com/madcok-co/unicorn/core/pkg/adapters/security/ratelimiter"
 
-	// Middleware
-
 	// Resilience
 	"github.com/madcok-co/unicorn/core/pkg/resilience"
 )
+
+// Helper function for creating tags
+func T(key, value string) contracts.Tag {
+	return contracts.T(key, value)
+}
 
 // ============================================================
 // MODELS & DTOs
@@ -150,11 +155,13 @@ type paymentService struct {
 }
 
 func NewPaymentService() PaymentService {
-	cb := resilience.NewCircuitBreaker(resilience.CircuitBreakerConfig{
-		Name:             "payment-service",
-		MaxFailures:      3,
-		Timeout:          30 * time.Second,
-		HalfOpenRequests: 2,
+	cb := resilience.NewCircuitBreaker(&resilience.CircuitBreakerConfig{
+		Name:        "payment-service",
+		MaxRequests: 2,
+		Timeout:     30 * time.Second,
+		ReadyToTrip: func(counts resilience.Counts) bool {
+			return counts.ConsecutiveFailures > 3
+		},
 	})
 
 	return &paymentService{
@@ -164,22 +171,24 @@ func NewPaymentService() PaymentService {
 
 func (s *paymentService) ProcessPayment(amount float64, currency string) (*PaymentResult, error) {
 	// Use circuit breaker to protect payment gateway calls
-	result, err := s.circuitBreaker.Execute(func() (interface{}, error) {
+	var result *PaymentResult
+	err := s.circuitBreaker.Execute(func() error {
 		// In production: call Stripe, PayPal, etc.
 		time.Sleep(100 * time.Millisecond) // Simulate API call
 
-		return &PaymentResult{
+		result = &PaymentResult{
 			TransactionID: fmt.Sprintf("txn_%d", time.Now().Unix()),
 			Status:        "success",
 			ProcessedAt:   time.Now(),
-		}, nil
+		}
+		return nil
 	})
 
 	if err != nil {
 		return nil, err
 	}
 
-	return result.(*PaymentResult), nil
+	return result, nil
 }
 
 func (s *paymentService) RefundPayment(transactionID string) error {
@@ -198,11 +207,11 @@ func Register(ctx *ucontext.Context, req RegisterRequest) (map[string]interface{
 
 	// Increment registration metric
 	if metrics != nil {
-		metrics.IncrementCounter("user_registrations_total", map[string]string{"status": "attempted"})
+		metrics.Counter("user_registrations_total", T("status", "attempted")).Inc()
 	}
 
 	// Get services
-	passwordHasher := ctx.GetService("passwordHasher").(*hasher.PasswordHasher)
+	passwordHasher := ctx.GetService("passwordHasher").(hasher.PasswordHasher)
 	emailService := ctx.GetService("emailService").(EmailService)
 
 	// Hash password
@@ -210,7 +219,7 @@ func Register(ctx *ucontext.Context, req RegisterRequest) (map[string]interface{
 	if err != nil {
 		logger.Error("failed to hash password", "error", err)
 		if metrics != nil {
-			metrics.IncrementCounter("user_registrations_total", map[string]string{"status": "failed"})
+			metrics.Counter("user_registrations_total", T("status", "failed")).Inc()
 		}
 		return nil, fmt.Errorf("failed to create user")
 	}
@@ -237,7 +246,7 @@ func Register(ctx *ucontext.Context, req RegisterRequest) (map[string]interface{
 	logger.Info("user registered", "user_id", user.ID, "email", user.Email)
 
 	if metrics != nil {
-		metrics.IncrementCounter("user_registrations_total", map[string]string{"status": "success"})
+		metrics.Counter("user_registrations_total", T("status", "success")).Inc()
 	}
 
 	return map[string]interface{}{
@@ -252,12 +261,12 @@ func Login(ctx *ucontext.Context, req LoginRequest) (*LoginResponse, error) {
 	metrics := ctx.Metrics()
 
 	if metrics != nil {
-		metrics.IncrementCounter("user_logins_total", map[string]string{"status": "attempted"})
+		metrics.Counter("user_logins_total", T("status", "attempted")).Inc()
 	}
 
 	// Get services
-	passwordHasher := ctx.GetService("passwordHasher").(*hasher.PasswordHasher)
-	jwtAuth := ctx.GetService("jwtAuth").(*auth.JWTAuth)
+	passwordHasher := ctx.GetService("passwordHasher").(hasher.PasswordHasher)
+	jwtAuth := ctx.GetService("jwtAuth").(*auth.JWTAuthenticator)
 
 	// Get user from cache
 	cacheKey := fmt.Sprintf("user:email:%s", req.Email)
@@ -265,7 +274,7 @@ func Login(ctx *ucontext.Context, req LoginRequest) (*LoginResponse, error) {
 	if err := cache.Get(ctx.Context(), cacheKey, &user); err != nil {
 		logger.Warn("user not found", "email", req.Email)
 		if metrics != nil {
-			metrics.IncrementCounter("user_logins_total", map[string]string{"status": "failed", "reason": "not_found"})
+			metrics.Counter("user_logins_total", T("status", "failed"), T("reason", "not_found")).Inc()
 		}
 		return nil, fmt.Errorf("invalid credentials")
 	}
@@ -274,17 +283,18 @@ func Login(ctx *ucontext.Context, req LoginRequest) (*LoginResponse, error) {
 	if err := passwordHasher.Verify(req.Password, user.Password); err != nil {
 		logger.Warn("invalid password", "email", req.Email)
 		if metrics != nil {
-			metrics.IncrementCounter("user_logins_total", map[string]string{"status": "failed", "reason": "invalid_password"})
+			metrics.Counter("user_logins_total", T("status", "failed"), T("reason", "invalid_password")).Inc()
 		}
 		return nil, fmt.Errorf("invalid credentials")
 	}
 
 	// Generate JWT token
-	token, err := jwtAuth.GenerateToken(map[string]interface{}{
-		"user_id":  user.ID,
-		"username": user.Username,
-		"email":    user.Email,
-	})
+	identity := &contracts.Identity{
+		ID:    user.ID,
+		Name:  user.Username,
+		Email: user.Email,
+	}
+	tokenPair, err := jwtAuth.IssueTokens(identity)
 	if err != nil {
 		logger.Error("failed to generate token", "error", err)
 		return nil, fmt.Errorf("failed to generate token")
@@ -293,11 +303,11 @@ func Login(ctx *ucontext.Context, req LoginRequest) (*LoginResponse, error) {
 	logger.Info("user logged in", "user_id", user.ID, "email", user.Email)
 
 	if metrics != nil {
-		metrics.IncrementCounter("user_logins_total", map[string]string{"status": "success"})
+		metrics.Counter("user_logins_total", T("status", "success")).Inc()
 	}
 
 	return &LoginResponse{
-		Token:     token,
+		Token:     tokenPair.AccessToken,
 		User:      &user,
 		ExpiresIn: 86400, // 24 hours
 	}, nil
@@ -314,7 +324,7 @@ func CreateProduct(ctx *ucontext.Context, req CreateProductRequest) (*Product, e
 	metrics := ctx.Metrics()
 
 	if metrics != nil {
-		metrics.IncrementCounter("products_created_total", nil)
+		metrics.Counter("products_created_total").Inc()
 	}
 
 	// Get user ID from context (set by auth middleware)
@@ -351,15 +361,22 @@ func CreateProduct(ctx *ucontext.Context, req CreateProductRequest) (*Product, e
 		}
 
 		// Use retry for reliable message publishing
-		retryConfig := resilience.RetryConfig{
+		retryer := resilience.NewRetryer(&resilience.RetryConfig{
 			MaxAttempts:     3,
 			InitialInterval: 100 * time.Millisecond,
 			MaxInterval:     1 * time.Second,
 			Multiplier:      2.0,
+		})
+
+		// Encode event to JSON
+		eventJSON, _ := json.Marshal(event)
+		msg := &contracts.BrokerMessage{
+			Topic: "product.created",
+			Body:  eventJSON,
 		}
 
-		_, err := resilience.Retry(retryConfig, func() (interface{}, error) {
-			return nil, broker.Publish(ctx.Context(), "product.created", event)
+		err := retryer.Do(func() error {
+			return broker.Publish(ctx.Context(), "product.created", msg)
 		})
 
 		if err != nil {
@@ -370,7 +387,7 @@ func CreateProduct(ctx *ucontext.Context, req CreateProductRequest) (*Product, e
 	logger.Info("product created", "id", product.ID, "name", product.Name, "user_id", userID)
 
 	if metrics != nil {
-		metrics.RecordHistogram("product_price", product.Price, map[string]string{"user_id": userID})
+		metrics.Histogram("product_price", T("user_id", userID)).Observe(product.Price)
 	}
 
 	return product, nil
@@ -401,7 +418,7 @@ func ListProducts(ctx *ucontext.Context) (*PaginatedResponse, error) {
 	totalPages := (total + perPage - 1) / perPage
 
 	if metrics != nil {
-		metrics.IncrementCounter("products_list_requests", map[string]string{"page": fmt.Sprintf("%d", page)})
+		metrics.Counter("products_list_requests", T("page", fmt.Sprintf("%d", page))).Inc()
 	}
 
 	return &PaginatedResponse{
@@ -420,7 +437,7 @@ func GetProduct(ctx *ucontext.Context) (*Product, error) {
 	metrics := ctx.Metrics()
 
 	if metrics != nil {
-		metrics.IncrementCounter("products_get_requests", map[string]string{"product_id": productID})
+		metrics.Counter("products_get_requests", T("product_id", productID)).Inc()
 	}
 
 	// Try cache first
@@ -429,13 +446,13 @@ func GetProduct(ctx *ucontext.Context) (*Product, error) {
 	if err := cache.Get(ctx.Context(), cacheKey, &product); err == nil {
 		logger.Info("product retrieved from cache", "id", productID)
 		if metrics != nil {
-			metrics.IncrementCounter("cache_hits", map[string]string{"key": "product"})
+			metrics.Counter("cache_hits", T("key", "product")).Inc()
 		}
 		return &product, nil
 	}
 
 	if metrics != nil {
-		metrics.IncrementCounter("cache_misses", map[string]string{"key": "product"})
+		metrics.Counter("cache_misses", T("key", "product")).Inc()
 	}
 
 	// Return mock data (in production: fetch from database)
@@ -484,7 +501,7 @@ func CreateOrder(ctx *ucontext.Context, req CreateOrderRequest) (*Order, error) 
 	if err != nil {
 		logger.Error("payment failed", "error", err)
 		if metrics != nil {
-			metrics.IncrementCounter("orders_failed", map[string]string{"reason": "payment_failed"})
+			metrics.Counter("orders_failed", T("reason", "payment_failed")).Inc()
 		}
 		return nil, fmt.Errorf("payment failed: %w", err)
 	}
@@ -510,8 +527,8 @@ func CreateOrder(ctx *ucontext.Context, req CreateOrderRequest) (*Order, error) 
 		"transaction_id", paymentResult.TransactionID)
 
 	if metrics != nil {
-		metrics.IncrementCounter("orders_created_total", map[string]string{"status": "success"})
-		metrics.RecordHistogram("order_amount", totalPrice, map[string]string{"currency": "USD"})
+		metrics.Counter("orders_created_total", T("status", "success")).Inc()
+		metrics.Histogram("order_amount", T("currency", "USD")).Observe(totalPrice)
 	}
 
 	return order, nil
@@ -620,17 +637,17 @@ func main() {
 	broker := memoryBroker.New()
 	application.SetBroker(broker)
 
-	// Setup metrics
-	metricsCollector := metricsAdapter.NewPrometheusMetrics("unicorn_complete")
+	// Setup metrics (using noop driver for this example)
+	metricsCollector := metricsAdapter.New(metricsAdapter.NewNoopDriver())
 	application.SetMetrics(metricsCollector)
 
 	// Setup security services
-	passwordHasher := hasher.NewPasswordHasher()
+	passwordHasher := hasher.NewBcryptHasher(nil) // Use default config
 	application.RegisterService("passwordHasher", passwordHasher)
 
-	jwtAuth := auth.NewJWTAuth(auth.JWTConfig{
-		Secret:     []byte(jwtSecret),
-		Expiration: 24 * time.Hour,
+	jwtAuth := auth.NewJWTAuthenticator(&auth.JWTConfig{
+		SecretKey:      jwtSecret,
+		AccessTokenTTL: 24 * time.Hour,
 	})
 	application.RegisterService("jwtAuth", jwtAuth)
 
@@ -642,7 +659,10 @@ func main() {
 	application.RegisterService("paymentService", paymentService)
 
 	// Setup rate limiter
-	rateLimiter := ratelimiter.NewMemoryRateLimiter(100, time.Minute)
+	rateLimiter := ratelimiter.NewInMemoryRateLimiter(&ratelimiter.InMemoryRateLimiterConfig{
+		Limit:  100,
+		Window: time.Minute,
+	})
 	application.RegisterService("rateLimiter", rateLimiter)
 
 	// Register handlers

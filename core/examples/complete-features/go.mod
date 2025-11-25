@@ -1,7 +1,12 @@
 module github.com/madcok-co/unicorn/examples/complete-features
 
-go 1.21
+go 1.24.0
 
-require github.com/madcok-co/unicorn/core v0.0.0
+require github.com/madcok-co/unicorn v0.0.0
 
-replace github.com/madcok-co/unicorn/core => ../../
+require (
+	golang.org/x/crypto v0.45.0 // indirect
+	golang.org/x/sys v0.38.0 // indirect
+)
+
+replace github.com/madcok-co/unicorn => ../../../

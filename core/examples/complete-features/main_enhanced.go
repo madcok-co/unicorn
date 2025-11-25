@@ -9,6 +9,7 @@ import (
 	httpAdapter "github.com/madcok-co/unicorn/core/pkg/adapters/http"
 	"github.com/madcok-co/unicorn/core/pkg/app"
 	"github.com/madcok-co/unicorn/core/pkg/context"
+	"github.com/madcok-co/unicorn/core/pkg/contracts"
 
 	// Adapters
 	memoryBroker "github.com/madcok-co/unicorn/core/pkg/adapters/broker/memory"
@@ -74,7 +75,7 @@ func Register(ctx *context.Context, req RegisterRequest) (map[string]interface{}
 	cache := ctx.Cache()
 
 	// Get password hasher from context
-	passwordHasher := ctx.GetService("passwordHasher").(*hasher.PasswordHasher)
+	passwordHasher := ctx.GetService("passwordHasher").(hasher.PasswordHasher)
 
 	// Hash password
 	hashedPassword, err := passwordHasher.Hash(req.Password)
@@ -112,8 +113,8 @@ func Login(ctx *context.Context, req LoginRequest) (*LoginResponse, error) {
 	cache := ctx.Cache()
 
 	// Get services
-	passwordHasher := ctx.GetService("passwordHasher").(*hasher.PasswordHasher)
-	jwtAuth := ctx.GetService("jwtAuth").(*auth.JWTAuth)
+	passwordHasher := ctx.GetService("passwordHasher").(hasher.PasswordHasher)
+	jwtAuth := ctx.GetService("jwtAuth").(*auth.JWTAuthenticator)
 
 	// Get user from cache (in production: get from database)
 	cacheKey := fmt.Sprintf("user:email:%s", req.Email)
@@ -130,11 +131,12 @@ func Login(ctx *context.Context, req LoginRequest) (*LoginResponse, error) {
 	}
 
 	// Generate JWT token
-	token, err := jwtAuth.GenerateToken(map[string]interface{}{
-		"user_id":  user.ID,
-		"username": user.Username,
-		"email":    user.Email,
-	})
+	identity := &contracts.Identity{
+		ID:    user.ID,
+		Name:  user.Username,
+		Email: user.Email,
+	}
+	tokenPair, err := jwtAuth.IssueTokens(identity)
 	if err != nil {
 		logger.Error("failed to generate token", "error", err)
 		return nil, fmt.Errorf("failed to generate token")
@@ -143,7 +145,7 @@ func Login(ctx *context.Context, req LoginRequest) (*LoginResponse, error) {
 	logger.Info("user logged in", "user_id", user.ID, "email", user.Email)
 
 	return &LoginResponse{
-		Token: token,
+		Token: tokenPair.AccessToken,
 		User:  &user,
 	}, nil
 }
@@ -163,15 +165,19 @@ func VerifyToken(ctx *context.Context) (map[string]interface{}, error) {
 	}
 
 	// Verify token
-	jwtAuth := ctx.GetService("jwtAuth").(*auth.JWTAuth)
-	claims, err := jwtAuth.VerifyToken(token)
+	jwtAuth := ctx.GetService("jwtAuth").(*auth.JWTAuthenticator)
+	identity, err := jwtAuth.Validate(ctx.Context(), token)
 	if err != nil {
 		return nil, fmt.Errorf("invalid token: %w", err)
 	}
 
 	return map[string]interface{}{
-		"valid":  true,
-		"claims": claims,
+		"valid": true,
+		"identity": map[string]interface{}{
+			"id":    identity.ID,
+			"name":  identity.Name,
+			"email": identity.Email,
+		},
 	}, nil
 }
 
@@ -341,12 +347,12 @@ func main() {
 	application.SetBroker(broker)
 
 	// Setup security services
-	passwordHasher := hasher.NewPasswordHasher()
+	passwordHasher := hasher.NewBcryptHasher(nil) // Use default config
 	application.RegisterService("passwordHasher", passwordHasher)
 
-	jwtAuth := auth.NewJWTAuth(auth.JWTConfig{
-		Secret:     []byte(jwtSecret),
-		Expiration: 24 * time.Hour,
+	jwtAuth := auth.NewJWTAuthenticator(&auth.JWTConfig{
+		SecretKey:      jwtSecret,
+		AccessTokenTTL: 24 * time.Hour,
 	})
 	application.RegisterService("jwtAuth", jwtAuth)
 
