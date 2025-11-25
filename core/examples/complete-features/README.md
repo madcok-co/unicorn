@@ -8,6 +8,7 @@ This directory contains comprehensive examples demonstrating all features of the
 |---------|-------------|------|----------------------|
 | **main.go** | Basic CRUD API | 8080 | HTTP handlers, caching, query params, path params, message broker |
 | **main_enhanced.go** | Enhanced with Security | 8080 | JWT auth, password hashing, protected endpoints, env config |
+| **main_complete.go** | **🎯 ALL Features** | 8080 | **Everything**: Auth, Security, Resilience, Metrics, Cron, Business Services |
 
 ## 🚀 Quick Start
 
@@ -256,6 +257,131 @@ token, _ := jwtAuth.GenerateToken(map[string]interface{}{
 
 claims, _ := jwtAuth.VerifyToken(token)
 ```
+
+### 3. Complete Example (main_complete.go) ⭐ **RECOMMENDED**
+
+This is the **most comprehensive example** demonstrating **ALL Unicorn Framework features** in a production-ready application.
+
+**Features:**
+
+#### 🔐 **Security & Authentication**
+- ✅ **JWT Authentication** - Complete auth flow with token expiration
+- ✅ **Password Hashing** - bcrypt with proper salting
+- ✅ **User Management** - Registration, login, profile
+- ✅ **Rate Limiting** - Protection against abuse
+
+#### 🏗️ **Resilience Patterns**
+- ✅ **Circuit Breaker** - Protects payment service from cascading failures
+- ✅ **Retry with Exponential Backoff** - Reliable message publishing
+- ✅ **Automatic Recovery** - Self-healing on failures
+
+#### 📊 **Observability**
+- ✅ **Prometheus Metrics** - Request counters, histograms
+- ✅ **Custom Metrics** - Business metrics (orders, revenue, etc.)
+- ✅ **Cache Hit/Miss Tracking** - Performance monitoring
+- ✅ **Service Health Checks** - Real-time status monitoring
+
+#### 🎯 **Business Services**
+- ✅ **Email Service** - Welcome emails, order confirmations
+- ✅ **Payment Service** - Payment processing with circuit breaker
+- ✅ **Custom Service Injection** - Clean dependency injection pattern
+
+#### 📨 **Message Broker**
+- ✅ **Event Publishing** - Async event handling
+- ✅ **Pub/Sub Pattern** - Decoupled architecture
+- ✅ **Multi-Trigger Handlers** - Same handler for HTTP + Messages
+- ✅ **Reliable Publishing** - With retry mechanism
+
+#### ⏰ **Scheduled Tasks**
+- ✅ **Cron Jobs** - Periodic cache cleanup
+- ✅ **Configurable** - Enable/disable via environment
+
+#### 🎨 **Advanced Features**
+- ✅ **Pagination** - Efficient data retrieval
+- ✅ **Cache Strategy** - Cache-first with fallback
+- ✅ **Async Processing** - Non-blocking email sending
+- ✅ **Environment Config** - Full .env support
+
+**Endpoints:**
+
+```bash
+# Authentication
+POST   /auth/register         # Register with metrics tracking
+POST   /auth/login            # Login with JWT + metrics
+
+# Products  
+POST   /products              # Create + publish event (with retry)
+GET    /products              # List with pagination
+GET    /products/:id          # Get with cache-first strategy
+
+# Orders
+POST   /orders                # Create with payment processing (circuit breaker)
+
+# System
+GET    /health                # Health check with service status
+GET    /metrics               # Prometheus metrics endpoint
+```
+
+**Running:**
+
+```bash
+# Run the complete example
+go run main_complete.go
+
+# Or with environment variables
+export ENABLE_CRON=true
+export ENABLE_METRICS=true
+go run main_complete.go
+```
+
+**Testing:**
+
+```bash
+# Use comprehensive test suite
+./test-complete.sh
+
+# This runs 20+ test cases covering:
+# - Authentication flow
+# - Product CRUD operations
+# - Order processing with payments
+# - Error handling
+# - Concurrent requests
+# - Load testing
+```
+
+**Example Flow:**
+
+```go
+// 1. Circuit Breaker protecting external service
+paymentService := NewPaymentService() // Has built-in circuit breaker
+result, err := paymentService.ProcessPayment(99.99, "USD")
+
+// 2. Retry for reliable message publishing
+resilience.Retry(retryConfig, func() (interface{}, error) {
+    return nil, broker.Publish(ctx, "product.created", event)
+})
+
+// 3. Metrics tracking
+metrics.IncrementCounter("orders_created_total", map[string]string{
+    "status": "success",
+})
+metrics.RecordHistogram("order_amount", totalPrice, nil)
+
+// 4. Custom service injection
+emailService := ctx.GetService("emailService").(EmailService)
+emailService.SendOrderConfirmation(order)
+```
+
+**What Makes This Complete:**
+
+| Category | Features |
+|----------|----------|
+| **Security** | JWT, bcrypt, rate limiting |
+| **Resilience** | Circuit breaker, retry, health checks |
+| **Observability** | Metrics, logging, tracing-ready |
+| **Integration** | Cache, broker, email, payment |
+| **Patterns** | DI, async, pagination, caching |
+| **Production** | Error handling, env config, health |
 
 ## 💡 Additional Features Available
 
