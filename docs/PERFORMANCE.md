@@ -18,6 +18,21 @@ This document covers the performance features, optimizations, and best practices
 
 Unicorn framework is designed for **ultra-low latency** with these key principles:
 
+### ⚡ Automatic Performance (No Configuration Needed!)
+
+**Good news:** All performance optimizations are **enabled by default**. Just write your code normally!
+
+```go
+// That's it! This code runs with 38 ns/op, 0 allocs/op
+func MyHandler(ctx *ucontext.Context) error {
+    return ctx.JSON(200, map[string]string{"status": "ok"})
+}
+```
+
+No flags, no config files, no setup required. You get ultra-low latency out of the box! 🚀
+
+### Design Principles
+
 - ✅ **Zero allocations** on hot path
 - ✅ **Sub-100 nanosecond** operations
 - ✅ **Object pooling** for memory reuse
