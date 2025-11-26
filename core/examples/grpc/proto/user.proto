@@ -1,0 +1,104 @@
+syntax = "proto3";
+
+package user;
+
+option go_package = "github.com/madcok-co/unicorn/core/examples/grpc/pb";
+
+// UserService provides user management operations
+service UserService {
+  // CreateUser creates a new user
+  rpc CreateUser(CreateUserRequest) returns (CreateUserResponse);
+
+  // GetUser retrieves a user by ID
+  rpc GetUser(GetUserRequest) returns (GetUserResponse);
+
+  // ListUsers lists all users with pagination
+  rpc ListUsers(ListUsersRequest) returns (ListUsersResponse);
+
+  // UpdateUser updates an existing user
+  rpc UpdateUser(UpdateUserRequest) returns (UpdateUserResponse);
+
+  // DeleteUser deletes a user by ID
+  rpc DeleteUser(DeleteUserRequest) returns (DeleteUserResponse);
+
+  // StreamUsers streams users in real-time
+  rpc StreamUsers(StreamUsersRequest) returns (stream User);
+}
+
+// User represents a user entity
+message User {
+  string id = 1;
+  string name = 2;
+  string email = 3;
+  string role = 4;
+  int64 created_at = 5;
+  int64 updated_at = 6;
+}
+
+// CreateUserRequest
+message CreateUserRequest {
+  string name = 1;
+  string email = 2;
+  string password = 3;
+  string role = 4;
+}
+
+// CreateUserResponse
+message CreateUserResponse {
+  User user = 1;
+  string message = 2;
+}
+
+// GetUserRequest
+message GetUserRequest {
+  string id = 1;
+}
+
+// GetUserResponse
+message GetUserResponse {
+  User user = 1;
+}
+
+// ListUsersRequest
+message ListUsersRequest {
+  int32 page = 1;
+  int32 page_size = 2;
+  string role = 3;
+}
+
+// ListUsersResponse
+message ListUsersResponse {
+  repeated User users = 1;
+  int32 total = 2;
+  int32 page = 3;
+  int32 page_size = 4;
+}
+
+// UpdateUserRequest
+message UpdateUserRequest {
+  string id = 1;
+  string name = 2;
+  string email = 3;
+  string role = 4;
+}
+
+// UpdateUserResponse
+message UpdateUserResponse {
+  User user = 1;
+  string message = 2;
+}
+
+// DeleteUserRequest
+message DeleteUserRequest {
+  string id = 1;
+}
+
+// DeleteUserResponse
+message DeleteUserResponse {
+  string message = 1;
+}
+
+// StreamUsersRequest
+message StreamUsersRequest {
+  string role = 1;
+}
