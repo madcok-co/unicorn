@@ -51,14 +51,29 @@ github.com/madcok-co/unicorn/
 
 ### Installation
 
+**Latest stable release (recommended):**
 ```bash
-# Core framework
-go get github.com/madcok-co/unicorn/core
+go get github.com/madcok-co/unicorn/core@latest
+```
 
+**Specific version:**
+```bash
+go get github.com/madcok-co/unicorn/core@v0.1.0
+```
+
+**Latest development (bleeding edge):**
+```bash
+go get github.com/madcok-co/unicorn/core@main
+```
+
+**Install optional drivers:**
+```bash
 # Install drivers you need
-go get github.com/madcok-co/unicorn/contrib/database/gorm
-go get github.com/madcok-co/unicorn/contrib/cache/redis
-go get github.com/madcok-co/unicorn/contrib/logger/zap
+go get github.com/madcok-co/unicorn/contrib/database/gorm@latest
+go get github.com/madcok-co/unicorn/contrib/cache/redis@latest
+go get github.com/madcok-co/unicorn/contrib/logger/zap@latest
+go get github.com/madcok-co/unicorn/contrib/broker/kafka@latest
+go get github.com/madcok-co/unicorn/contrib/validator/playground@latest
 ```
 
 ### Basic Example
