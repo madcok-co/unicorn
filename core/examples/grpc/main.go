@@ -10,7 +10,7 @@ import (
 	"time"
 
 	"github.com/google/uuid"
-	grpcAdapter "github.com/madcok-co/unicorn/contrib/adapters/grpc"
+	grpcAdapter "github.com/madcok-co/unicorn/contrib/grpc"
 	"github.com/madcok-co/unicorn/core/examples/grpc/pb"
 	"github.com/madcok-co/unicorn/core/pkg/app"
 	"google.golang.org/grpc"

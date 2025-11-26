@@ -1,4 +1,4 @@
-module github.com/madcok-co/unicorn/contrib/adapters/grpc
+module github.com/madcok-co/unicorn/contrib/grpc
 
 go 1.25.1
 

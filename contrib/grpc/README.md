@@ -16,7 +16,7 @@ A production-ready gRPC adapter that integrates seamlessly with the Unicorn fram
 ## Installation
 
 ```bash
-go get github.com/madcok-co/unicorn/contrib/adapters/grpc
+go get github.com/madcok-co/unicorn/contrib/grpc
 ```
 
 ## Quick Start
@@ -26,7 +26,7 @@ package main
 
 import (
     "context"
-    grpcAdapter "github.com/madcok-co/unicorn/contrib/adapters/grpc"
+    grpcAdapter "github.com/madcok-co/unicorn/contrib/grpc"
     "github.com/madcok-co/unicorn/core/pkg/app"
 )
 
