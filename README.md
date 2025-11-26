@@ -12,10 +12,12 @@ A batteries-included Go framework where developers only need to focus on busines
 - **Generic Adapter Pattern** - Swap infrastructure (DB, Cache, Logger, etc.) without code changes
 - **Multiple Named Adapters** - Support multiple databases, caches, brokers per app
 - **Custom Service Injection** - Inject your own interfaces with type-safe generics
-- **Built-in Security** - JWT, API Key auth, rate limiting, encryption, audit logging
-- **Production-Ready Middleware** - Recovery, CORS, Timeout, Rate Limiting, Auth
-- **Resilience Patterns** - Circuit Breaker, Retry with Backoff, Bulkhead
+- **Security Features** - CSRF protection, sensitive data masking
+- **Production-Ready Middleware** - Request/Response logging, compression (Gzip/Brotli)
+- **Resilience Patterns** - Circuit Breaker, Retry with exponential backoff
+- **Database Tools** - Migrations, transactions with savepoints, rollback support
 - **Observability** - Metrics, tracing, structured logging, health checks
+- **API Documentation** - Auto-generate OpenAPI/Swagger from code
 - **Multi-Service Mode** - Run multiple services independently or together
 - **High Performance** - Zero-allocation context pooling (~38ns/op)
 
@@ -65,14 +67,11 @@ go get github.com/madcok-co/unicorn/contrib/logger/zap
 package main
 
 import (
-    "github.com/madcok-co/unicorn/core"
-    "github.com/madcok-co/unicorn/contrib/database/gorm"
-    "github.com/madcok-co/unicorn/contrib/cache/redis"
-    "github.com/madcok-co/unicorn/contrib/logger/zap"
+    "log"
     
-    "gorm.io/driver/postgres"
-    gormpkg "gorm.io/gorm"
-    goredis "github.com/redis/go-redis/v9"
+    httpAdapter "github.com/madcok-co/unicorn/core/pkg/adapters/http"
+    "github.com/madcok-co/unicorn/core/pkg/app"
+    "github.com/madcok-co/unicorn/core/pkg/context"
 )
 
 type CreateUserRequest struct {
@@ -87,46 +86,48 @@ type User struct {
 }
 
 func main() {
-    app := unicorn.New(&unicorn.Config{
+    // Create application
+    application := app.New(&app.Config{
         Name:       "my-app",
+        Version:    "1.0.0",
         EnableHTTP: true,
+        HTTP: &httpAdapter.Config{
+            Host: "0.0.0.0",
+            Port: 8080,
+        },
     })
 
-    // Setup infrastructure with contrib drivers
-    db, _ := gormpkg.Open(postgres.Open(dsn), &gormpkg.Config{})
-    app.SetDB(gorm.NewDriver(db))
-    
-    rdb := goredis.NewClient(&goredis.Options{Addr: "localhost:6379"})
-    app.SetCache(redis.NewDriver(rdb))
-    
-    app.SetLogger(zap.NewDriver())
-
-    // Register handler with multiple triggers
-    app.RegisterHandler(CreateUser).
+    // Register handler
+    application.RegisterHandler(CreateUser).
+        Named("create-user").
         HTTP("POST", "/users").
-        Message("user.create").  // Also trigger from message broker
         Done()
 
-    app.Start()
+    // Start application
+    if err := application.Start(); err != nil {
+        log.Fatal(err)
+    }
 }
 
 // Handler - pure business logic!
-func CreateUser(ctx *unicorn.Context) error {
-    var req CreateUserRequest
-    ctx.Bind(&req)
+func CreateUser(ctx *context.Context, req CreateUserRequest) (*User, error) {
+    // Access infrastructure via context (when configured)
+    // db := ctx.DB()      // Database
+    // cache := ctx.Cache() // Cache
+    // log := ctx.Logger()  // Logger
     
-    // Validate
-    if err := ctx.Validate(req); err != nil {
-        return ctx.Error(400, err.Error())
+    user := &User{
+        ID:    "user-123",
+        Name:  req.Name,
+        Email: req.Email,
     }
     
-    // Use infrastructure through context
-    user := &User{ID: "user-123", Name: req.Name, Email: req.Email}
-    ctx.DB().Create(ctx.Context(), user)
-    ctx.Cache().Set(ctx.Context(), "user:"+user.ID, user, time.Hour)
-    ctx.Logger().Info("user created", "id", user.ID)
+    // Database example:
+    // if err := db.Create(user); err != nil {
+    //     return nil, err
+    // }
     
-    return ctx.JSON(201, user)
+    return user, nil
 }
 ```
 
@@ -213,52 +214,98 @@ app.RunServices("user-service")          // Specific service
 
 See [contrib/README.md](./contrib/README.md) for full driver documentation.
 
-## Production Middleware
+## Production-Ready Features
 
-Built-in middleware for production use:
+Unicorn comes with comprehensive production-ready features:
+
+### Middleware & Tools
+
+Comprehensive middleware and tools available (see `core/pkg/middleware/` and `core/pkg/`):
+
+**Request/Response Logging** (`middleware/logger.go`)
+- Auto-masking sensitive data (password, token, api_key, credit_card, etc.)
+- 4 variants: `RequestResponseLogger`, `CompactLogger`, `DetailedLogger`, `AuditLogger`
+- Configurable skip paths, max body size, custom fields
+- 21 tests covering all scenarios
+
+**Response Compression** (`middleware/compress.go`)
+- Gzip and Brotli compression with smart algorithm selection
+- Only compresses when beneficial (checks compressed size < original)
+- Content-type filtering, extension exclusion
+- 15 tests for all compression scenarios
+
+**CSRF Protection** (`middleware/csrf.go`)
+- Token-based protection with constant-time validation
+- Cookie-based storage with configurable security options
+- Multiple token sources (header, form, query)
+- 11 tests covering all attack scenarios
+
+**Database Migrations** (`migration/migration.go`)
+- Version-based Up/Down migrations
+- Rollback, Reset, Redo support
+- 11 tests for all migration scenarios
+
+**Transaction Management** (`transaction/transaction.go`)
+- Auto commit/rollback with `WithTx()`
+- Nested transactions via savepoints
+- Retry on deadlock, read-only mode
+- 10 tests for transaction patterns
+
+**OpenAPI Generation** (`openapi/openapi.go`)
+- Auto-generate OpenAPI 3.0 spec from handlers
+- Type reflection for request/response schemas
+- Validation rules extraction
+- 9 tests for spec generation
 
 ```go
-import "github.com/madcok-co/unicorn/core/pkg/middleware"
-
-// Apply middleware stack
-app.Use(
-    middleware.Recovery(),                           // Panic recovery
-    middleware.CORS(),                               // CORS handling
-    middleware.Timeout(30 * time.Second),            // Request timeout
-    middleware.RateLimit(100, time.Minute),          // Rate limiting
+// Example usage
+import (
+    "github.com/madcok-co/unicorn/core/pkg/middleware"
+    "github.com/madcok-co/unicorn/core/pkg/migration"
+    "github.com/madcok-co/unicorn/core/pkg/transaction"
+    "github.com/madcok-co/unicorn/core/pkg/openapi"
 )
 
-// Authentication middleware
-app.Use(middleware.JWT([]byte("secret")))            // JWT auth
-app.Use(middleware.APIKey(validateAPIKey))           // API key auth
-app.Use(middleware.BasicAuth(validateCredentials))   // Basic auth
+// Middleware
+logger := middleware.RequestResponseLogger(appLogger)
+compress := middleware.Compress()
+csrf := middleware.CSRF()
 
-// Health checks (Kubernetes-ready)
-health := middleware.NewHealthHandler(nil)
-health.AddChecker("database", middleware.DatabaseChecker(db))
-health.AddChecker("cache", middleware.CacheChecker(cache))
+// Database migrations
+migrator := migration.New(&migration.Config{Database: db})
+migrator.Register(1, "create_users", &CreateUsersTable{})
+migrator.Up(ctx)
 
-app.GET("/health", health.Handler())
-app.GET("/health/live", health.LivenessHandler())
-app.GET("/health/ready", health.ReadinessHandler())
+// Transactions
+err := transaction.WithTx(ctx, db, func(txCtx context.Context) error {
+    // Your database operations here
+    return nil // commit on success, rollback on error
+})
+
+// OpenAPI generation
+generator := openapi.NewGenerator(&openapi.Config{
+    Info: openapi.Info{Title: "My API", Version: "1.0.0"},
+})
+spec, _ := generator.Generate()
 ```
 
-## Resilience Patterns
+**Test Coverage:** All features are production-ready with comprehensive test suites:
+- 77 total tests across all new features
+- 100% passing rate
+- Tests cover: happy paths, edge cases, error handling, security scenarios
 
-Built-in resilience patterns for fault tolerance:
+### Resilience Patterns
+
+Built-in fault tolerance patterns:
 
 ```go
 import "github.com/madcok-co/unicorn/core/pkg/resilience"
 
-// Circuit Breaker - prevents cascading failures
+// Circuit Breaker - prevent cascading failures
 cb := resilience.NewCircuitBreaker(&resilience.CircuitBreakerConfig{
     MaxRequests: 3,
     Timeout:     30 * time.Second,
-    ReadyToTrip: func(counts resilience.Counts) bool {
-        return counts.ConsecutiveFailures > 5
-    },
 })
-
 err := cb.Execute(func() error {
     return callExternalService()
 })
@@ -267,21 +314,13 @@ err := cb.Execute(func() error {
 retryer := resilience.NewRetryer(&resilience.RetryConfig{
     MaxAttempts:     3,
     InitialInterval: 100 * time.Millisecond,
-    MaxInterval:     10 * time.Second,
     Multiplier:      2.0,
 })
-
 err := retryer.Do(func() error {
     return unreliableOperation()
 })
 
-// Bulkhead - limits concurrent executions
-bulkhead := resilience.NewBulkhead(10, 5*time.Second)
-err := bulkhead.Execute(func() error {
-    return processRequest()
-})
-
-// Combine patterns
+// Combine patterns for robust external calls
 err := cb.ExecuteWithRetry(retryer, func() error {
     return callExternalService()
 })
