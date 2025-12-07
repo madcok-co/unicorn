@@ -15,9 +15,10 @@ import (
 // Adapter adalah generic message broker adapter
 // Wraps any Broker implementation dan connects to handler registry
 type Adapter struct {
-	broker   contracts.Broker
-	registry *handler.Registry
-	config   *Config
+	broker      contracts.Broker
+	registry    *handler.Registry
+	config      *Config
+	appAdapters *ucontext.AppAdapters
 
 	mu       sync.Mutex
 	running  bool
@@ -67,6 +68,11 @@ func New(broker contracts.Broker, registry *handler.Registry, config *Config) *A
 		stopCh:   make(chan struct{}),
 		handlers: make(map[string]*handler.Handler),
 	}
+}
+
+// SetAppAdapters sets the app-level adapters
+func (a *Adapter) SetAppAdapters(adapters *ucontext.AppAdapters) {
+	a.appAdapters = adapters
 }
 
 // Start starts consuming messages
@@ -165,6 +171,12 @@ func (a *Adapter) handleMessage(ctx context.Context, msg *contracts.BrokerMessag
 
 	// Create unicorn context
 	uctx := ucontext.New(ctx)
+
+	// Set app adapters if available
+	if a.appAdapters != nil {
+		uctx.SetAppAdapters(a.appAdapters)
+	}
+
 	req := &ucontext.Request{
 		Body:        msg.Body,
 		Headers:     msg.Headers,
