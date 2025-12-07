@@ -437,6 +437,7 @@ func (a *App) runLegacyMode() error {
 	// Start HTTP adapter
 	if a.config.EnableHTTP && a.registry.HasHTTPHandlers() {
 		a.httpAdapter = httpAdapter.New(a.registry, a.config.HTTP)
+		a.httpAdapter.SetAppAdapters(a.adapters)
 		wg.Add(1)
 		go func() {
 			defer wg.Done()
@@ -472,6 +473,7 @@ func (a *App) runLegacyMode() error {
 	// Start generic broker adapter
 	if a.config.EnableBroker && a.adapters.Broker != nil && a.registry.HasMessageHandlers() {
 		a.brokerAdapter = brokerAdapter.New(a.adapters.Broker, a.registry, a.config.Broker)
+		a.brokerAdapter.SetAppAdapters(a.adapters)
 		wg.Add(1)
 		go func() {
 			defer wg.Done()

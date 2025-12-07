@@ -17,9 +17,10 @@ import (
 
 // Adapter adalah HTTP server adapter
 type Adapter struct {
-	server   *http.Server
-	registry *handler.Registry
-	config   *Config
+	server      *http.Server
+	registry    *handler.Registry
+	config      *Config
+	appAdapters *ucontext.AppAdapters
 
 	// Middleware untuk semua routes
 	middlewares []Middleware
@@ -74,6 +75,11 @@ func New(registry *handler.Registry, config *Config) *Adapter {
 		middlewares:    make([]Middleware, 0),
 		paramExtractor: defaultParamExtractor,
 	}
+}
+
+// SetAppAdapters sets the app-level adapters
+func (a *Adapter) SetAppAdapters(adapters *ucontext.AppAdapters) {
+	a.appAdapters = adapters
 }
 
 // Use adds middleware
@@ -208,6 +214,11 @@ func (a *Adapter) createHandler(h *handler.Handler, method, pattern string) http
 
 		// Create unicorn context
 		ctx := ucontext.New(r.Context())
+
+		// Set app adapters if available
+		if a.appAdapters != nil {
+			ctx.SetAppAdapters(a.appAdapters)
+		}
 
 		// Extract path parameters using Go 1.22+ PathValue
 		params := make(map[string]string)
