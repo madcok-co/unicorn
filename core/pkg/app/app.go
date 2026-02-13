@@ -239,6 +239,48 @@ func (a *App) Validator(name ...string) contracts.Validator {
 	return a.adapters.Validator
 }
 
+// SetAuth sets the authenticator
+func (a *App) SetAuth(auth contracts.Authenticator, name ...string) *App {
+	if len(name) > 0 && name[0] != "" {
+		if a.adapters.Authenticators == nil {
+			a.adapters.Authenticators = make(map[string]contracts.Authenticator)
+		}
+		a.adapters.Authenticators[name[0]] = auth
+	} else {
+		a.adapters.Authenticator = auth
+	}
+	return a
+}
+
+// Auth returns the default authenticator
+func (a *App) Auth(name ...string) contracts.Authenticator {
+	if len(name) > 0 && name[0] != "" {
+		return a.adapters.Authenticators[name[0]]
+	}
+	return a.adapters.Authenticator
+}
+
+// SetAuthz sets the authorizer
+func (a *App) SetAuthz(authz contracts.Authorizer, name ...string) *App {
+	if len(name) > 0 && name[0] != "" {
+		if a.adapters.Authorizers == nil {
+			a.adapters.Authorizers = make(map[string]contracts.Authorizer)
+		}
+		a.adapters.Authorizers[name[0]] = authz
+	} else {
+		a.adapters.Authorizer = authz
+	}
+	return a
+}
+
+// Authz returns the default authorizer
+func (a *App) Authz(name ...string) contracts.Authorizer {
+	if len(name) > 0 && name[0] != "" {
+		return a.adapters.Authorizers[name[0]]
+	}
+	return a.adapters.Authorizer
+}
+
 // SetCronScheduler sets the cron scheduler
 func (a *App) SetCronScheduler(scheduler cronAdapter.Scheduler) *App {
 	a.cronAdapter = cronAdapter.New(a.registry, scheduler, nil)
