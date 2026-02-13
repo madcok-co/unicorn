@@ -84,6 +84,198 @@ app.Use(middleware.CORSWithConfig(&middleware.CORSConfig{
 }))
 ```
 
+### Compress
+
+Response compression with Gzip and Brotli support:
+
+```go
+// Default compression (brotli preferred, falls back to gzip)
+app.Use(middleware.Compress())
+
+// With custom config
+app.Use(middleware.CompressWithConfig(&middleware.CompressConfig{
+    Level:     middleware.BestCompression,
+    MinLength: 1024, // Only compress responses >= 1KB
+    CompressionTypes: []string{
+        "text/html",
+        "text/css",
+        "application/json",
+        "application/javascript",
+    },
+    ExcludedExtensions: []string{
+        ".jpg", ".png", ".gif", ".mp4", ".zip",
+    },
+    ExcludedPaths: []string{
+        "/metrics", "/health",
+    },
+    EnableBrotli: true, // Prefer brotli over gzip
+    Skipper: func(ctx *context.Context) bool {
+        return ctx.Request().Path == "/stream"
+    },
+}))
+
+// Compress only specific content types
+app.Use(middleware.CompressWithTypes("application/json", "text/html"))
+
+// Compress only responses above minimum size
+app.Use(middleware.CompressWithMinLength(2048)) // 2KB
+```
+
+**Features:**
+- Automatic algorithm selection (brotli > gzip)
+- Smart compression (only compresses when beneficial)
+- Content-type filtering
+- File extension exclusion
+- Path exclusion
+- Configurable compression levels
+
+### Logger
+
+Request/Response logging with sensitive data masking:
+
+```go
+// Request/Response Logger (default variant)
+app.Use(middleware.RequestResponseLogger(logger))
+
+// Compact logger (one-line per request)
+app.Use(middleware.CompactLogger(logger))
+
+// Detailed logger (full request/response bodies)
+app.Use(middleware.DetailedLogger(logger))
+
+// Audit logger (captures everything for compliance)
+app.Use(middleware.AuditLogger(logger))
+
+// With custom config
+app.Use(middleware.LoggerWithConfig(&middleware.LoggerConfig{
+    Logger:      logger,
+    LogRequest:  true,
+    LogResponse: true,
+    LogHeaders:  true,
+    LogBody:     true,
+    MaxBodySize: 4096, // Max 4KB logged
+    SkipPaths:   []string{"/health", "/metrics"},
+    Skipper: func(ctx *context.Context) bool {
+        return strings.HasPrefix(ctx.Request().Path, "/internal")
+    },
+    SensitiveFields: []string{
+        "password", "token", "api_key", "secret",
+        "credit_card", "ssn", "authorization",
+    },
+    CustomFields: func(ctx *context.Context) map[string]interface{} {
+        return map[string]interface{}{
+            "tenant_id": ctx.Get("tenant_id"),
+            "user_id":   ctx.Get("user_id"),
+        }
+    },
+}))
+```
+
+**Features:**
+- Auto-masking of 21 sensitive field patterns
+- Multiple log formats (compact, detailed, audit)
+- Request/Response body logging
+- Configurable max body size
+- Path exclusion
+- Custom field extraction
+- Performance metrics (latency, status code)
+
+### CSRF Protection
+
+Token-based CSRF protection:
+
+```go
+// Default CSRF protection
+app.Use(middleware.CSRF())
+
+// With custom config
+app.Use(middleware.CSRFWithConfig(&middleware.CSRFConfig{
+    TokenLength:   32,
+    TokenLookup:   "header:X-CSRF-Token",  // Where to look for token
+    CookieName:    "_csrf",
+    CookiePath:    "/",
+    CookieSecure:  true,
+    CookieHTTPOnly: true,
+    CookieSameSite: "Strict",
+    Skipper: middleware.SkipMethods("GET", "HEAD", "OPTIONS"),
+    ErrorHandler: func(ctx *context.Context, err error) error {
+        return ctx.JSON(403, map[string]string{
+            "error": "CSRF token validation failed",
+        })
+    },
+}))
+
+// Referer-based CSRF protection (for same-origin checks)
+app.Use(middleware.CSRFFromReferer([]string{
+    "https://example.com",
+    "https://app.example.com",
+}))
+```
+
+**Token Sources:**
+- `header:X-CSRF-Token` - Header-based
+- `form:csrf_token` - Form field
+- `query:csrf_token` - Query parameter
+
+**Features:**
+- Secure token generation
+- Constant-time validation (prevents timing attacks)
+- Cookie-based token storage
+- Multiple token sources
+- Method-based skipping (skip GET/HEAD/OPTIONS)
+- Path-based skipping
+
+### Upload
+
+File upload handling with validation:
+
+```go
+// Default upload (10MB max)
+app.Use(middleware.Upload())
+
+// With custom config
+app.Use(middleware.UploadWithConfig(&middleware.UploadConfig{
+    MaxSize: 50 * 1024 * 1024, // 50MB
+    AllowedExtensions: []string{".jpg", ".png", ".pdf"},
+    AllowedMimeTypes: []string{
+        "image/jpeg",
+        "image/png",
+        "application/pdf",
+    },
+    FieldName: "file",
+    Skipper: func(ctx *context.Context) bool {
+        return ctx.Request().Path != "/upload"
+    },
+    OnUpload: func(ctx *context.Context, filename string, size int64) {
+        ctx.Logger().Info("file uploaded",
+            "filename", filename,
+            "size", size,
+        )
+    },
+}))
+
+// Preset: Image uploads only
+app.Use(middleware.UploadImage())
+
+// Preset: Document uploads only
+app.Use(middleware.UploadDocument())
+
+// Multiple files upload
+app.Use(middleware.UploadMultiple(5)) // Max 5 files
+```
+
+**Presets:**
+- `UploadImage()` - JPG, PNG, GIF, WebP (10MB max)
+- `UploadDocument()` - PDF, DOC, DOCX, XLS, XLSX (50MB max)
+
+**Features:**
+- File size validation
+- Extension filtering
+- MIME type validation
+- Multiple file support
+- Custom validation callbacks
+- Progress logging
+
 ### Rate Limiting
 
 Protect against abuse:
