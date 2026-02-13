@@ -1,0 +1,465 @@
+{
+  "info": {
+    "name": "Unicorn Enterprise SaaS Platform",
+    "description": "Complete API collection for testing all enterprise features",
+    "schema": "https://schema.getpostman.com/json/collection/v2.1.0/collection.json"
+  },
+  "variable": [
+    {
+      "key": "baseUrl",
+      "value": "http://localhost:8080",
+      "type": "string"
+    },
+    {
+      "key": "tenantHost",
+      "value": "acme.myapp.com",
+      "type": "string"
+    },
+    {
+      "key": "accessToken",
+      "value": "",
+      "type": "string"
+    }
+  ],
+  "item": [
+    {
+      "name": "Authentication",
+      "item": [
+        {
+          "name": "Login (OAuth2)",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"code\": \"oauth_code_from_google\",\n  \"state\": \"random_state_string\"\n}"
+            },
+            "url": {
+              "raw": "{{baseUrl}}/api/v1/auth/login",
+              "host": ["{{baseUrl}}"],
+              "path": ["api", "v1", "auth", "login"]
+            }
+          },
+          "response": []
+        },
+        {
+          "name": "OAuth Callback",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{baseUrl}}/api/v1/auth/callback?code=oauth_code&state=random_state",
+              "host": ["{{baseUrl}}"],
+              "path": ["api", "v1", "auth", "callback"],
+              "query": [
+                {
+                  "key": "code",
+                  "value": "oauth_code"
+                },
+                {
+                  "key": "state",
+                  "value": "random_state"
+                }
+              ]
+            }
+          },
+          "response": []
+        }
+      ]
+    },
+    {
+      "name": "Projects - V1 (Offset Pagination)",
+      "item": [
+        {
+          "name": "List Projects",
+          "request": {
+            "method": "GET",
+            "header": [
+              {
+                "key": "Host",
+                "value": "{{tenantHost}}"
+              },
+              {
+                "key": "Authorization",
+                "value": "Bearer {{accessToken}}"
+              }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/api/v1/projects?page=1&limit=10&sort=created_at&order=desc",
+              "host": ["{{baseUrl}}"],
+              "path": ["api", "v1", "projects"],
+              "query": [
+                {
+                  "key": "page",
+                  "value": "1"
+                },
+                {
+                  "key": "limit",
+                  "value": "10"
+                },
+                {
+                  "key": "sort",
+                  "value": "created_at"
+                },
+                {
+                  "key": "order",
+                  "value": "desc"
+                }
+              ]
+            }
+          },
+          "response": []
+        },
+        {
+          "name": "Create Project",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Host",
+                "value": "{{tenantHost}}"
+              },
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              },
+              {
+                "key": "Authorization",
+                "value": "Bearer {{accessToken}}"
+              }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"name\": \"New Project\",\n  \"description\": \"This is a test project\"\n}"
+            },
+            "url": {
+              "raw": "{{baseUrl}}/api/v1/projects",
+              "host": ["{{baseUrl}}"],
+              "path": ["api", "v1", "projects"]
+            }
+          },
+          "response": []
+        },
+        {
+          "name": "Get Project",
+          "request": {
+            "method": "GET",
+            "header": [
+              {
+                "key": "Host",
+                "value": "{{tenantHost}}"
+              },
+              {
+                "key": "Authorization",
+                "value": "Bearer {{accessToken}}"
+              }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/api/v1/projects/proj-1",
+              "host": ["{{baseUrl}}"],
+              "path": ["api", "v1", "projects", "proj-1"]
+            }
+          },
+          "response": []
+        },
+        {
+          "name": "Update Project",
+          "request": {
+            "method": "PUT",
+            "header": [
+              {
+                "key": "Host",
+                "value": "{{tenantHost}}"
+              },
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              },
+              {
+                "key": "Authorization",
+                "value": "Bearer {{accessToken}}"
+              }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"name\": \"Updated Project Name\",\n  \"description\": \"Updated description\",\n  \"status\": \"inactive\"\n}"
+            },
+            "url": {
+              "raw": "{{baseUrl}}/api/v1/projects/proj-1",
+              "host": ["{{baseUrl}}"],
+              "path": ["api", "v1", "projects", "proj-1"]
+            }
+          },
+          "response": []
+        },
+        {
+          "name": "Delete Project",
+          "request": {
+            "method": "DELETE",
+            "header": [
+              {
+                "key": "Host",
+                "value": "{{tenantHost}}"
+              },
+              {
+                "key": "Authorization",
+                "value": "Bearer {{accessToken}}"
+              }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/api/v1/projects/proj-1",
+              "host": ["{{baseUrl}}"],
+              "path": ["api", "v1", "projects", "proj-1"]
+            }
+          },
+          "response": []
+        }
+      ]
+    },
+    {
+      "name": "Projects - V2 (Cursor Pagination)",
+      "item": [
+        {
+          "name": "List Projects (Cursor)",
+          "request": {
+            "method": "GET",
+            "header": [
+              {
+                "key": "Host",
+                "value": "{{tenantHost}}"
+              },
+              {
+                "key": "Authorization",
+                "value": "Bearer {{accessToken}}"
+              }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/api/v2/projects?limit=10&sort=created_at&order=desc",
+              "host": ["{{baseUrl}}"],
+              "path": ["api", "v2", "projects"],
+              "query": [
+                {
+                  "key": "cursor",
+                  "value": "",
+                  "disabled": true
+                },
+                {
+                  "key": "limit",
+                  "value": "10"
+                },
+                {
+                  "key": "sort",
+                  "value": "created_at"
+                },
+                {
+                  "key": "order",
+                  "value": "desc"
+                }
+              ]
+            }
+          },
+          "response": []
+        },
+        {
+          "name": "Batch Update Projects",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Host",
+                "value": "{{tenantHost}}"
+              },
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              },
+              {
+                "key": "Authorization",
+                "value": "Bearer {{accessToken}}"
+              }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"project_ids\": [\"proj-1\", \"proj-2\", \"proj-3\"],\n  \"updates\": {\n    \"status\": \"archived\"\n  }\n}"
+            },
+            "url": {
+              "raw": "{{baseUrl}}/api/v2/projects/batch",
+              "host": ["{{baseUrl}}"],
+              "path": ["api", "v2", "projects", "batch"]
+            }
+          },
+          "response": []
+        }
+      ]
+    },
+    {
+      "name": "Multi-Tenancy Examples",
+      "item": [
+        {
+          "name": "Acme Corp - List Projects",
+          "request": {
+            "method": "GET",
+            "header": [
+              {
+                "key": "Host",
+                "value": "acme.myapp.com"
+              }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/api/v1/projects",
+              "host": ["{{baseUrl}}"],
+              "path": ["api", "v1", "projects"]
+            }
+          },
+          "response": []
+        },
+        {
+          "name": "Tech Corp - List Projects",
+          "request": {
+            "method": "GET",
+            "header": [
+              {
+                "key": "Host",
+                "value": "techcorp.myapp.com"
+              }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/api/v1/projects",
+              "host": ["{{baseUrl}}"],
+              "path": ["api", "v1", "projects"]
+            }
+          },
+          "response": []
+        }
+      ]
+    },
+    {
+      "name": "Authorization Examples",
+      "item": [
+        {
+          "name": "Developer - Read Project (✅ Allowed)",
+          "request": {
+            "method": "GET",
+            "header": [
+              {
+                "key": "Host",
+                "value": "{{tenantHost}}"
+              },
+              {
+                "key": "X-User-Role",
+                "value": "developer"
+              }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/api/v1/projects/proj-1",
+              "host": ["{{baseUrl}}"],
+              "path": ["api", "v1", "projects", "proj-1"]
+            }
+          },
+          "response": []
+        },
+        {
+          "name": "Developer - Delete Project (❌ Forbidden)",
+          "request": {
+            "method": "DELETE",
+            "header": [
+              {
+                "key": "Host",
+                "value": "{{tenantHost}}"
+              },
+              {
+                "key": "X-User-Role",
+                "value": "developer"
+              }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/api/v1/projects/proj-2",
+              "host": ["{{baseUrl}}"],
+              "path": ["api", "v1", "projects", "proj-2"]
+            }
+          },
+          "response": []
+        },
+        {
+          "name": "Viewer - Read Project (✅ Allowed)",
+          "request": {
+            "method": "GET",
+            "header": [
+              {
+                "key": "Host",
+                "value": "{{tenantHost}}"
+              },
+              {
+                "key": "X-User-Role",
+                "value": "viewer"
+              }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/api/v1/projects/proj-1",
+              "host": ["{{baseUrl}}"],
+              "path": ["api", "v1", "projects", "proj-1"]
+            }
+          },
+          "response": []
+        },
+        {
+          "name": "Viewer - Create Project (❌ Forbidden)",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Host",
+                "value": "{{tenantHost}}"
+              },
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              },
+              {
+                "key": "X-User-Role",
+                "value": "viewer"
+              }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"name\": \"Test Project\"\n}"
+            },
+            "url": {
+              "raw": "{{baseUrl}}/api/v1/projects",
+              "host": ["{{baseUrl}}"],
+              "path": ["api", "v1", "projects"]
+            }
+          },
+          "response": []
+        },
+        {
+          "name": "Admin - Delete Any Project (✅ Allowed)",
+          "request": {
+            "method": "DELETE",
+            "header": [
+              {
+                "key": "Host",
+                "value": "{{tenantHost}}"
+              },
+              {
+                "key": "X-User-Role",
+                "value": "tenant_admin"
+              }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/api/v1/projects/proj-1",
+              "host": ["{{baseUrl}}"],
+              "path": ["api", "v1", "projects", "proj-1"]
+            }
+          },
+          "response": []
+        }
+      ]
+    }
+  ]
+}

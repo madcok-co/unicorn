@@ -7,19 +7,27 @@ A batteries-included Go framework where developers only need to focus on busines
 
 ## Features
 
+### Core Framework
 - **Focus on Business Logic** - Write handlers that only contain business logic
 - **Multi-Trigger Support** - Same handler works for HTTP, Kafka, RabbitMQ, gRPC, Cron
 - **Generic Adapter Pattern** - Swap infrastructure (DB, Cache, Logger, etc.) without code changes
 - **Multiple Named Adapters** - Support multiple databases, caches, brokers per app
 - **Custom Service Injection** - Inject your own interfaces with type-safe generics
-- **Security Features** - CSRF protection, sensitive data masking
-- **Production-Ready Middleware** - Request/Response logging, compression (Gzip/Brotli)
+- **Production-Ready Middleware** - Request/Response logging, compression (Gzip/Brotli), CSRF
 - **Resilience Patterns** - Circuit Breaker, Retry with exponential backoff
 - **Database Tools** - Migrations, transactions with savepoints, rollback support
 - **Observability** - Metrics, tracing, structured logging, health checks
-- **API Documentation** - Auto-generate OpenAPI/Swagger from code
 - **Multi-Service Mode** - Run multiple services independently or together
 - **High Performance** - Zero-allocation context pooling (~38ns/op)
+
+### 🚀 Enterprise Features
+- **OAuth2/OIDC Authentication** - Google, GitHub, Microsoft, Generic OIDC providers
+- **RBAC Authorization** - Role-based access control with wildcards and inheritance
+- **Multi-Tenancy** - Subdomain, header, path, and custom tenant isolation
+- **Configuration Management** - Viper-based config with hot reload and multiple sources
+- **Pagination** - Offset-based and cursor-based pagination with HATEOAS links
+- **API Versioning** - URL, header, query, and custom versioning strategies
+- **Semantic Versioning** - Version comparison and deprecation support
 
 ## Project Structure
 
@@ -37,7 +45,13 @@ github.com/madcok-co/unicorn/
 │   ├── cmd/unicorn/            # CLI tool
 │   └── examples/               # Example applications
 │
-├── contrib/                    # Official driver implementations
+├── contrib/                    # Official drivers & enterprise features
+│   ├── auth/oauth2/            # 🚀 OAuth2/OIDC authentication
+│   ├── authz/rbac/             # 🚀 RBAC authorization
+│   ├── config/                 # 🚀 Configuration management
+│   ├── multitenancy/           # 🚀 Multi-tenant support
+│   ├── pagination/             # 🚀 Pagination helpers
+│   ├── versioning/             # 🚀 API versioning
 │   ├── database/gorm/          # GORM database driver
 │   ├── cache/redis/            # Redis cache driver
 │   ├── logger/zap/             # Zap logger driver
@@ -156,7 +170,18 @@ go get github.com/madcok-co/unicorn/core@v0.1.0
 go get github.com/madcok-co/unicorn/core@main
 ```
 
-**Install optional drivers:**
+**Install enterprise features:**
+```bash
+# Install enterprise features you need
+go get github.com/madcok-co/unicorn/contrib/auth/oauth2@latest        # OAuth2/OIDC
+go get github.com/madcok-co/unicorn/contrib/authz/rbac@latest         # RBAC
+go get github.com/madcok-co/unicorn/contrib/multitenancy@latest       # Multi-tenancy
+go get github.com/madcok-co/unicorn/contrib/config@latest             # Configuration
+go get github.com/madcok-co/unicorn/contrib/pagination@latest         # Pagination
+go get github.com/madcok-co/unicorn/contrib/versioning@latest         # API Versioning
+```
+
+**Install core drivers:**
 ```bash
 # Install drivers you need
 go get github.com/madcok-co/unicorn/contrib/database/gorm@latest
@@ -305,6 +330,217 @@ app.Service("order-service").
 // Run all or specific services
 app.Start()                              // All services
 app.RunServices("user-service")          // Specific service
+```
+
+## Enterprise Features Usage
+
+### OAuth2/OIDC Authentication
+
+Authenticate users with multiple OAuth2 providers:
+
+```go
+import (
+    "github.com/madcok-co/unicorn/contrib/auth/oauth2"
+    "github.com/madcok-co/unicorn/core/pkg/contracts"
+)
+
+// Setup OAuth2 (Google example)
+auth := oauth2.NewDriver(&oauth2.Config{
+    Provider:     oauth2.ProviderGoogle,
+    ClientID:     "your-client-id",
+    ClientSecret: "your-client-secret",
+    RedirectURL:  "http://localhost:8080/auth/callback",
+    Scopes:       []string{"openid", "email", "profile"},
+})
+
+app.SetAuth(auth)
+
+// Login handler
+func Login(ctx *context.Context, req oauth2.AuthRequest) (*oauth2.AuthResponse, error) {
+    identity, err := ctx.Auth().Authenticate(ctx.Context(), map[string]interface{}{
+        "code":  req.Code,
+        "state": req.State,
+    })
+    if err != nil {
+        return nil, err
+    }
+    
+    return &oauth2.AuthResponse{
+        Token: identity.Token,
+        User:  identity.Claims,
+    }, nil
+}
+```
+
+### RBAC Authorization
+
+Role-based access control with wildcards:
+
+```go
+import "github.com/madcok-co/unicorn/contrib/authz/rbac"
+
+// Setup RBAC
+authz := rbac.NewDriver()
+app.SetAuthz(authz)
+
+// Define roles and permissions
+authz.CreateRole("admin", []string{"*"})
+authz.CreateRole("editor", []string{"posts:*", "comments:read"})
+authz.CreateRole("viewer", []string{"*:read"})
+
+// Assign role to user
+authz.AssignRole("user-123", "editor")
+
+// Check permissions in handler
+func DeletePost(ctx *context.Context, req DeletePostRequest) error {
+    identity := &contracts.Identity{ID: "user-123"}
+    
+    allowed, err := ctx.Authz().Authorize(ctx.Context(), identity, "delete", "posts")
+    if err != nil || !allowed {
+        return errors.New("forbidden")
+    }
+    
+    // Delete post logic
+    return nil
+}
+```
+
+### Multi-Tenancy
+
+Isolate data by tenant with flexible strategies:
+
+```go
+import "github.com/madcok-co/unicorn/contrib/multitenancy"
+
+// Setup multi-tenancy (subdomain strategy)
+mt := multitenancy.NewDriver(&multitenancy.Config{
+    Strategy: multitenancy.StrategySubdomain,
+    Domain:   "myapp.com",
+})
+
+// Create tenants
+mt.CreateTenant(&multitenancy.Tenant{
+    ID:     "acme",
+    Name:   "Acme Corp",
+    Active: true,
+})
+
+// Resolve tenant in handler
+func GetData(ctx *context.Context, req GetDataRequest) (*DataResponse, error) {
+    tenant, err := mt.GetTenantFromRequest(ctx.Context(), ctx.Request())
+    if err != nil {
+        return nil, err
+    }
+    
+    // Query data filtered by tenant
+    var data []Item
+    ctx.DB().Where("tenant_id = ?", tenant.ID).FindAll(ctx.Context(), &data, "")
+    
+    return &DataResponse{Items: data}, nil
+}
+```
+
+### Configuration Management
+
+Dynamic configuration with hot reload:
+
+```go
+import "github.com/madcok-co/unicorn/contrib/config"
+
+// Setup config
+cfg := config.NewDriver(&config.Config{
+    Defaults: map[string]interface{}{
+        "app.name": "MyApp",
+        "app.port": 8080,
+    },
+    Files:      []string{"config.yaml", "config.json"},
+    EnvPrefix:  "MYAPP",
+    AutoReload: true,
+})
+
+// Watch for changes
+cfg.OnChange(func(key string, value interface{}) {
+    log.Printf("Config changed: %s = %v", key, value)
+})
+
+// Use in handler
+func GetSettings(ctx *context.Context) (*SettingsResponse, error) {
+    return &SettingsResponse{
+        AppName:    cfg.GetString("app.name"),
+        MaxUpload:  cfg.GetInt64("upload.max_size"),
+        Features:   cfg.GetStringSlice("features.enabled"),
+    }, nil
+}
+```
+
+### Pagination
+
+Offset and cursor-based pagination with HATEOAS:
+
+```go
+import "github.com/madcok-co/unicorn/contrib/pagination"
+
+// Offset-based pagination (small datasets)
+func ListUsers(ctx *context.Context, req ListUsersRequest) (*pagination.OffsetResult, error) {
+    params := pagination.ParseOffsetParams(req.Page, req.Limit, req.Sort, req.Order)
+    
+    var users []User
+    var total int64
+    
+    query := pagination.BuildOffsetQuery("users", params)
+    ctx.DB().Raw(ctx.Context(), query, &users)
+    ctx.DB().Raw(ctx.Context(), "SELECT COUNT(*) FROM users", &total)
+    
+    return pagination.NewOffsetResult(users, total, params), nil
+}
+
+// Cursor-based pagination (large datasets)
+func ListOrders(ctx *context.Context, req ListOrdersRequest) (*pagination.CursorResult, error) {
+    params := pagination.ParseCursorParams(req.Cursor, req.Limit, req.Sort, req.Order)
+    
+    var orders []Order
+    query := pagination.BuildCursorQuery("orders", params)
+    ctx.DB().Raw(ctx.Context(), query, &orders)
+    
+    return pagination.NewCursorResult(orders, params), nil
+}
+```
+
+### API Versioning
+
+Multiple versioning strategies with deprecation support:
+
+```go
+import "github.com/madcok-co/unicorn/contrib/versioning"
+
+// Setup versioning (URL-based)
+vm := versioning.NewManager(&versioning.Config{
+    Strategy: versioning.StrategyURL,
+    Prefix:   "/api",
+})
+
+// Add version deprecation
+vm.AddDeprecation("1.0", time.Now().Add(90*24*time.Hour), "2.0")
+
+// Version middleware
+app.Use(func(next http.HandlerFunc) http.HandlerFunc {
+    return func(w http.ResponseWriter, r *http.Request) {
+        version, err := vm.ResolveVersion(r)
+        if err != nil {
+            http.Error(w, "Invalid version", http.StatusBadRequest)
+            return
+        }
+        
+        // Set deprecation headers if needed
+        vm.SetDeprecationHeaders(w, version)
+        
+        next(w, r)
+    }
+})
+
+// Version-specific handlers
+app.RegisterHandler(GetUserV1).HTTP("GET", "/api/v1/users/:id").Done()
+app.RegisterHandler(GetUserV2).HTTP("GET", "/api/v2/users/:id").Done()
 ```
 
 ## Available Drivers
