@@ -38,7 +38,10 @@ package main
 
 import (
     "log"
-    "github.com/madcok-co/unicorn/core"
+    
+    httpAdapter "github.com/madcok-co/unicorn/core/pkg/adapters/http"
+    "github.com/madcok-co/unicorn/core/pkg/app"
+    "github.com/madcok-co/unicorn/core/pkg/context"
 )
 
 // Request DTO
@@ -52,33 +55,30 @@ type GreetResponse struct {
 }
 
 // Handler - pure business logic
-func Greet(ctx *unicorn.Context) error {
-    var req GreetRequest
-    ctx.Bind(&req)
-    
-    return ctx.JSON(200, &GreetResponse{
+func Greet(ctx *context.Context, req GreetRequest) (*GreetResponse, error) {
+    return &GreetResponse{
         Message: "Hello, " + req.Name + "!",
-    })
+    }, nil
 }
 
 func main() {
-    app := unicorn.New(&unicorn.Config{
+    application := app.New(&app.Config{
         Name:       "greeter",
         Version:    "1.0.0",
         EnableHTTP: true,
-        HTTP: &unicorn.HTTPConfig{
+        HTTP: &httpAdapter.Config{
             Host: "0.0.0.0",
             Port: 8080,
         },
     })
 
-    app.RegisterHandler(Greet).
+    application.RegisterHandler(Greet).
         Named("greet").
         HTTP("POST", "/greet").
         Done()
 
     log.Println("Server starting on :8080")
-    if err := app.Start(); err != nil {
+    if err := application.Start(); err != nil {
         log.Fatal(err)
     }
 }
@@ -111,18 +111,18 @@ Unicorn uses a generic adapter pattern. Install only the drivers you need:
 
 ```go
 import (
-    "github.com/madcok-co/unicorn/core"
+    "github.com/madcok-co/unicorn/core/pkg/app"
     "github.com/madcok-co/unicorn/contrib/database/gorm"
     "gorm.io/driver/postgres"
     gormpkg "gorm.io/gorm"
 )
 
 func main() {
-    app := unicorn.New(&unicorn.Config{Name: "my-app"})
+    application := app.New(&app.Config{Name: "my-app"})
     
     // Setup database
     db, _ := gormpkg.Open(postgres.Open(dsn), &gormpkg.Config{})
-    app.SetDB(gorm.NewDriver(db))
+    application.SetDB(gorm.NewDriver(db))
     
     // ...
 }
@@ -132,16 +132,17 @@ func main() {
 
 ```go
 import (
+    "github.com/madcok-co/unicorn/core/pkg/app"
     "github.com/madcok-co/unicorn/contrib/cache/redis"
     goredis "github.com/redis/go-redis/v9"
 )
 
 func main() {
-    app := unicorn.New(&unicorn.Config{Name: "my-app"})
+    application := app.New(&app.Config{Name: "my-app"})
     
     // Setup cache
     rdb := goredis.NewClient(&goredis.Options{Addr: "localhost:6379"})
-    app.SetCache(redis.NewDriver(rdb))
+    application.SetCache(redis.NewDriver(rdb))
     
     // ...
 }
@@ -151,17 +152,18 @@ func main() {
 
 ```go
 import (
+    "github.com/madcok-co/unicorn/core/pkg/app"
     "github.com/madcok-co/unicorn/contrib/logger/zap"
 )
 
 func main() {
-    app := unicorn.New(&unicorn.Config{Name: "my-app"})
+    application := app.New(&app.Config{Name: "my-app"})
     
     // Setup logger
-    app.SetLogger(zap.NewDriver())
+    application.SetLogger(zap.NewDriver())
     
     // Or with custom config
-    app.SetLogger(zap.NewDriverWithConfig(&zap.Config{
+    application.SetLogger(zap.NewDriverWithConfig(&zap.Config{
         Level:  "debug",
         Format: "json",
     }))
@@ -174,14 +176,15 @@ func main() {
 
 ```go
 import (
+    "github.com/madcok-co/unicorn/core/pkg/app"
     "github.com/madcok-co/unicorn/contrib/validator/playground"
 )
 
 func main() {
-    app := unicorn.New(&unicorn.Config{Name: "my-app"})
+    application := app.New(&app.Config{Name: "my-app"})
     
     // Setup validator
-    app.SetValidator(playground.NewDriver())
+    application.SetValidator(playground.NewDriver())
     
     // ...
 }
@@ -193,10 +196,13 @@ func main() {
 package main
 
 import (
+    "fmt"
     "log"
     "time"
     
-    "github.com/madcok-co/unicorn/core"
+    httpAdapter "github.com/madcok-co/unicorn/core/pkg/adapters/http"
+    "github.com/madcok-co/unicorn/core/pkg/app"
+    "github.com/madcok-co/unicorn/core/pkg/context"
     "github.com/madcok-co/unicorn/contrib/database/gorm"
     "github.com/madcok-co/unicorn/contrib/cache/redis"
     "github.com/madcok-co/unicorn/contrib/logger/zap"
@@ -218,35 +224,31 @@ type User struct {
     Email string `json:"email"`
 }
 
-func CreateUser(ctx *unicorn.Context) error {
-    var req CreateUserRequest
-    ctx.Bind(&req)
-    
-    // Validate request
-    if err := ctx.Validate(req); err != nil {
-        return ctx.Error(400, err.Error())
-    }
-    
+func CreateUser(ctx *context.Context, req CreateUserRequest) (*User, error) {
     // Create user in database
     user := &User{Name: req.Name, Email: req.Email}
     if err := ctx.DB().Create(ctx.Context(), user); err != nil {
         ctx.Logger().Error("failed to create user", "error", err)
-        return ctx.Error(500, "Failed to create user")
+        return nil, fmt.Errorf("failed to create user: %w", err)
     }
     
     // Cache the user
-    ctx.Cache().Set(ctx.Context(), "user:"+string(user.ID), user, time.Hour)
+    ctx.Cache().Set(ctx.Context(), fmt.Sprintf("user:%d", user.ID), user, time.Hour)
     
     // Log success
     ctx.Logger().Info("user created", "id", user.ID, "email", user.Email)
     
-    return ctx.JSON(201, user)
+    return user, nil
 }
 
 func main() {
-    app := unicorn.New(&unicorn.Config{
+    application := app.New(&app.Config{
         Name:       "user-service",
         EnableHTTP: true,
+        HTTP: &httpAdapter.Config{
+            Host: "0.0.0.0",
+            Port: 8080,
+        },
     })
 
     // Setup database
@@ -255,25 +257,25 @@ func main() {
         log.Fatal(err)
     }
     db.AutoMigrate(&User{})
-    app.SetDB(gorm.NewDriver(db))
+    application.SetDB(gorm.NewDriver(db))
     
     // Setup cache
     rdb := goredis.NewClient(&goredis.Options{Addr: "localhost:6379"})
-    app.SetCache(redis.NewDriver(rdb))
+    application.SetCache(redis.NewDriver(rdb))
     
     // Setup logger
-    app.SetLogger(zap.NewDriver())
+    application.SetLogger(zap.NewDriver())
     
     // Setup validator
-    app.SetValidator(playground.NewDriver())
+    application.SetValidator(playground.NewDriver())
 
     // Register handlers
-    app.RegisterHandler(CreateUser).
+    application.RegisterHandler(CreateUser).
         HTTP("POST", "/users").
         Done()
 
     log.Println("Server starting on :8080")
-    app.Start()
+    application.Start()
 }
 ```
 
@@ -282,27 +284,33 @@ func main() {
 ### Accessing Context Data
 
 ```go
-func MyHandler(ctx *unicorn.Context) error {
-    // Path parameters
+func MyHandler(ctx *context.Context) error {
+    // Path parameters (map access)
     userID := ctx.Request().Params["id"]
+    // Or use helper method
+    userID := ctx.Request().Param("id")
     
-    // Query parameters
+    // Query parameters (map access)
     page := ctx.Request().Query["page"]
+    // Or use helper method
+    page := ctx.Request().QueryParam("page")
     
-    // Headers
+    // Headers (map access)
     auth := ctx.Request().Headers["Authorization"]
+    // Or use helper method
+    auth := ctx.Request().Header("Authorization")
     
     // Request body
     body := ctx.Request().Body
     
-    return ctx.JSON(200, data)
+    return nil
 }
 ```
 
 ### Using Infrastructure
 
 ```go
-func MyHandler(ctx *unicorn.Context) error {
+func MyHandler(ctx *context.Context, req MyRequest) (*MyResponse, error) {
     // Database
     ctx.DB().Create(ctx.Context(), &entity)
     ctx.DB().FindByID(ctx.Context(), id, &result)
@@ -313,15 +321,12 @@ func MyHandler(ctx *unicorn.Context) error {
     
     // Logger
     ctx.Logger().Info("message", "key", "value")
-    ctx.Logger().WithError(err).Error("failed")
-    
-    // Validator
-    ctx.Validate(request)
+    ctx.Logger().Error("failed", "error", err)
     
     // Message Broker
     ctx.Broker().Publish(ctx.Context(), "topic", msg)
     
-    return ctx.JSON(200, result)
+    return &MyResponse{Data: result}, nil
 }
 ```
 

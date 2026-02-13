@@ -10,16 +10,16 @@ Handlers are the core of your application. They contain only business logic.
 
 ```go
 // Full signature: Context + Request -> Response + Error
-func CreateUser(ctx *unicorn.Context, req CreateUserRequest) (*User, error)
+func CreateUser(ctx *context.Context, req CreateUserRequest) (*User, error)
 
 // No request body: Context -> Response + Error
-func GetHealth(ctx *unicorn.Context) (*HealthResponse, error)
+func GetHealth(ctx *context.Context) (*HealthResponse, error)
 
 // List response
-func ListUsers(ctx *unicorn.Context) ([]*User, error)
+func ListUsers(ctx *context.Context) ([]*User, error)
 
 // No response (side effect only)
-func LogEvent(ctx *unicorn.Context, req LogRequest) error
+func LogEvent(ctx *context.Context, req LogRequest) error
 ```
 
 ### Request DTOs
@@ -105,15 +105,21 @@ HTTP("GET", "/orders/:orderId/items/:itemId")
 **Accessing HTTP Data:**
 
 ```go
-func GetUser(ctx *unicorn.Context) (*User, error) {
+func GetUser(ctx *context.Context) (*User, error) {
     // Path parameters
     userID := ctx.Request().Params["id"]
+    // Or use helper method
+    userID := ctx.Request().Param("id")
     
     // Query parameters
     include := ctx.Request().Query["include"]
+    // Or use helper method
+    include := ctx.Request().QueryParam("include")
     
     // Headers
     authHeader := ctx.Request().Headers["Authorization"]
+    // Or use helper method
+    authHeader := ctx.Request().Header("Authorization")
     
     // Raw body (if needed)
     body := ctx.Request().Body
@@ -126,15 +132,17 @@ func GetUser(ctx *unicorn.Context) (*User, error) {
 
 For message brokers (Kafka, RabbitMQ, Redis, NATS):
 
+> **Note:** The `Message()` trigger is the recommended way to work with message brokers. The older `Kafka()` trigger is deprecated and will be removed in a future version. Please use `Message()` for all new code.
+
 ```go
 // Basic message subscription
 Message("user.created")
 
 // With options
 Message("order.created", 
-    handler.WithConsumerGroup("order-processor"),
+    handler.WithGroup("order-processor"),
     handler.WithAutoAck(false),
-    handler.WithRetry(3),
+    handler.WithRetries(3, time.Second),
 )
 ```
 
@@ -142,20 +150,20 @@ Message("order.created",
 
 | Option | Description |
 |--------|-------------|
-| `WithConsumerGroup(group)` | Set consumer group ID |
+| `WithGroup(group)` | Set consumer group ID |
 | `WithAutoAck(bool)` | Enable/disable auto-acknowledgment |
-| `WithRetry(n)` | Number of retry attempts |
-| `WithRetryDelay(d)` | Delay between retries |
+| `WithRetries(n, backoff)` | Number of retry attempts and backoff duration |
 | `WithDeadLetter(topic)` | Dead letter topic for failed messages |
 
 **Accessing Message Data:**
 
 ```go
-func ProcessUserEvent(ctx *unicorn.Context, req UserEvent) error {
+func ProcessUserEvent(ctx *context.Context, req UserEvent) error {
     // Message metadata
-    topic := ctx.Request().MessageTopic
-    key := ctx.Request().MessageKey
-    headers := ctx.Request().MessageHeaders
+    topic := ctx.Request().Topic
+    key := ctx.Request().Key
+    partition := ctx.Request().Partition
+    offset := ctx.Request().Offset
     
     // Check trigger type
     if ctx.Request().TriggerType == "message" {
@@ -197,15 +205,18 @@ GRPC("OrderService", "ProcessOrder")
 ### Request Information
 
 ```go
-func MyHandler(ctx *unicorn.Context, req MyRequest) (*Response, error) {
+func MyHandler(ctx *context.Context, req MyRequest) (*Response, error) {
     // Trigger type: "http", "message", "cron", "grpc"
     triggerType := ctx.Request().TriggerType
     
-    // Request ID (auto-generated)
-    requestID := ctx.Request().ID
+    // Request metadata
+    method := ctx.Request().Method
+    path := ctx.Request().Path
     
-    // Timestamp
-    timestamp := ctx.Request().Timestamp
+    // For message triggers
+    topic := ctx.Request().Topic
+    partition := ctx.Request().Partition
+    offset := ctx.Request().Offset
     
     return &Response{}, nil
 }
@@ -214,48 +225,45 @@ func MyHandler(ctx *unicorn.Context, req MyRequest) (*Response, error) {
 ### Infrastructure Access
 
 ```go
-func CreateUser(ctx *unicorn.Context, req CreateUserRequest) (*User, error) {
+func CreateUser(ctx *context.Context, req CreateUserRequest) (*User, error) {
+    user := &User{Name: req.Name, Email: req.Email}
+    
     // Database
-    db := ctx.DB()
-    if err := db.Create(&user); err != nil {
+    if err := ctx.DB().Create(ctx.Context(), &user); err != nil {
         return nil, err
     }
     
     // Cache
-    cache := ctx.Cache()
-    cache.Set(ctx.Context(), "user:"+user.ID, user, time.Hour)
+    ctx.Cache().Set(ctx.Context(), "user:"+user.ID, user, time.Hour)
     
     // Logger (structured logging)
-    log := ctx.Logger()
-    log.Info("user created", 
+    ctx.Logger().Info("user created", 
         "id", user.ID, 
         "email", user.Email,
     )
     
     // Message Broker
-    broker := ctx.Broker()
-    broker.Publish(ctx.Context(), "user.created", &unicorn.BrokerMessage{
+    msg := &contracts.BrokerMessage{
         Key:  []byte(user.ID),
         Body: []byte(`{"id": "` + user.ID + `"}`),
-    })
+    }
+    ctx.Broker().Publish(ctx.Context(), "user.created", msg)
     
     // Metrics
-    metrics := ctx.Metrics()
-    metrics.Counter("users_created_total").Inc()
+    ctx.Metrics().Counter("users_created_total").Inc()
     
     // Tracer
-    tracer := ctx.Tracer()
-    span := tracer.StartSpan("create_user")
+    span := ctx.Tracer().StartSpan("create_user")
     defer span.End()
     
-    return &user, nil
+    return user, nil
 }
 ```
 
 ### Custom Metadata
 
 ```go
-func MyHandler(ctx *unicorn.Context, req Request) (*Response, error) {
+func MyHandler(ctx *context.Context, req Request) (*Response, error) {
     // Set metadata (thread-safe)
     ctx.Set("tenant_id", "tenant-123")
     ctx.Set("correlation_id", uuid.New().String())
@@ -273,7 +281,7 @@ func MyHandler(ctx *unicorn.Context, req Request) (*Response, error) {
 ### Identity (After Authentication)
 
 ```go
-func SecureHandler(ctx *unicorn.Context, req Request) (*Response, error) {
+func SecureHandler(ctx *context.Context, req Request) (*Response, error) {
     // Get authenticated identity
     identity := ctx.Identity()
     if identity == nil {
@@ -303,15 +311,15 @@ func SecureHandler(ctx *unicorn.Context, req Request) (*Response, error) {
 ### Returning Errors
 
 ```go
-func CreateUser(ctx *unicorn.Context, req CreateUserRequest) (*User, error) {
+func CreateUser(ctx *context.Context, req CreateUserRequest) (*User, error) {
     // Simple error
     if req.Name == "" {
         return nil, errors.New("name is required")
     }
     
     // Wrapped error
-    user, err := db.CreateUser(req)
-    if err != nil {
+    user := &User{Name: req.Name, Email: req.Email}
+    if err := ctx.DB().Create(ctx.Context(), user); err != nil {
         return nil, fmt.Errorf("failed to create user: %w", err)
     }
     
@@ -324,21 +332,22 @@ func CreateUser(ctx *unicorn.Context, req CreateUserRequest) (*User, error) {
 Use `HTTPError` for specific HTTP status codes:
 
 ```go
-import "github.com/madcok-co/unicorn/pkg/adapters/http"
+import httpAdapter "github.com/madcok-co/unicorn/core/pkg/adapters/http"
 
-func GetUser(ctx *unicorn.Context) (*User, error) {
-    userID := ctx.Request().Params["id"]
+func GetUser(ctx *context.Context) (*User, error) {
+    userID := ctx.Request().Param("id")
     
-    user, err := db.FindUser(userID)
+    var user User
+    err := ctx.DB().FindByID(ctx.Context(), userID, &user)
     if err != nil {
         if errors.Is(err, ErrNotFound) {
-            return nil, &http.HTTPError{
+            return nil, &httpAdapter.HTTPError{
                 StatusCode: 404,
                 Message:    "User not found",
                 Internal:   err,
             }
         }
-        return nil, &http.HTTPError{
+        return nil, &httpAdapter.HTTPError{
             StatusCode: 500,
             Message:    "Internal server error",
             Internal:   err,

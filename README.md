@@ -172,7 +172,7 @@ app.SetCache(memory.NewDriver())
 app.SetCache(redis.NewDriver(redisClient))
 
 // Handler code stays the same!
-func handler(ctx *unicorn.Context) error {
+func handler(ctx *context.Context) error {
     ctx.Cache().Set(ctx.Context(), "key", "value", time.Hour)
     return nil
 }
@@ -189,7 +189,7 @@ app.SetDB(gorm.NewDriver(analyticsDB), "analytics")     // Named
 app.SetDB(gorm.NewDriver(replicaDB), "replica")         // Named
 
 // In handler
-func handler(ctx *unicorn.Context) error {
+func handler(ctx *context.Context) error {
     ctx.DB().Create(ctx.Context(), &user)                    // Primary
     ctx.DB("analytics").Create(ctx.Context(), &event)        // Analytics
     ctx.DB("replica").FindAll(ctx.Context(), &users, "")     // Replica
