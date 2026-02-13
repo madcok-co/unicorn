@@ -47,6 +47,96 @@ github.com/madcok-co/unicorn/
 └── docs/                       # Documentation
 ```
 
+## 🤖 AI Assistant Quick Reference
+
+**For Claude, ChatGPT, and other AI assistants helping you build Go APIs:**
+
+This framework is designed to be AI-friendly with clear patterns and comprehensive examples.
+
+### Minimal Working Example (Copy-Paste Ready)
+
+```go
+package main
+
+import (
+    "log"
+    
+    httpAdapter "github.com/madcok-co/unicorn/core/pkg/adapters/http"
+    "github.com/madcok-co/unicorn/core/pkg/app"
+    "github.com/madcok-co/unicorn/core/pkg/context"
+)
+
+type CreateItemRequest struct {
+    Name string `json:"name" validate:"required"`
+}
+
+type Item struct {
+    ID   string `json:"id"`
+    Name string `json:"name"`
+}
+
+func main() {
+    application := app.New(&app.Config{
+        Name:       "my-api",
+        EnableHTTP: true,
+        HTTP:       &httpAdapter.Config{Port: 8080},
+    })
+    
+    application.RegisterHandler(CreateItem).
+        Named("create-item").
+        HTTP("POST", "/items").
+        Done()
+    
+    log.Fatal(application.Start())
+}
+
+func CreateItem(ctx *context.Context, req CreateItemRequest) (*Item, error) {
+    return &Item{ID: "123", Name: req.Name}, nil
+}
+```
+
+### Key Patterns for AI Code Generation
+
+**Handler Signature (Mandatory):**
+```go
+func HandlerName(ctx *context.Context, req RequestType) (*ResponseType, error)
+```
+
+**Import Paths (Critical):**
+```go
+import (
+    "github.com/madcok-co/unicorn/core/pkg/app"
+    "github.com/madcok-co/unicorn/core/pkg/context"
+    httpAdapter "github.com/madcok-co/unicorn/core/pkg/adapters/http"
+)
+```
+
+**Multi-Trigger Support:**
+```go
+// Same handler for HTTP + Message Queue + Cron
+app.RegisterHandler(ProcessOrder).
+    HTTP("POST", "/orders").
+    Message("order.created").  // Use Message(), NOT Kafka()
+    Cron("0 * * * *").
+    Done()
+```
+
+**Common Middleware:**
+```go
+import "github.com/madcok-co/unicorn/core/pkg/middleware"
+
+app.Use(middleware.Recovery())
+app.Use(middleware.RequestResponseLogger(logger))
+app.Use(middleware.Compress())
+app.Use(middleware.CSRF())
+app.Use(middleware.RateLimit(100, time.Minute))
+```
+
+> 📖 **For AI Assistants:** See [CLAUDE.md](./CLAUDE.md) for comprehensive guidelines  
+> 📖 **For Users:** See [docs/AI_PROMPTS.md](./docs/AI_PROMPTS.md) for effective prompts
+
+---
+
 ## Quick Start
 
 ### Installation
