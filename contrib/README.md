@@ -1,8 +1,26 @@
 # Unicorn Contrib - Official Driver Implementations
 
-This directory contains official driver implementations for the Unicorn framework.
+This directory contains official driver implementations and enterprise features for the Unicorn framework.
 
-## Available Drivers
+## 🚀 Enterprise Features
+
+### Authentication & Authorization
+
+| Feature | Package | Description |
+|---------|---------|-------------|
+| OAuth2/OIDC | `contrib/auth/oauth2` | OAuth2 authentication with Google, GitHub, Microsoft, Generic OIDC |
+| RBAC | `contrib/authz/rbac` | Role-Based Access Control with wildcards and inheritance |
+
+### Infrastructure
+
+| Feature | Package | Description |
+|---------|---------|-------------|
+| Multi-Tenancy | `contrib/multitenancy` | Multi-tenant support with 4 isolation strategies |
+| Configuration | `contrib/config` | Viper-based config management with hot reload |
+| Pagination | `contrib/pagination` | Offset and cursor-based pagination helpers |
+| API Versioning | `contrib/versioning` | Multiple versioning strategies (URL, header, etc.) |
+
+## 📦 Core Drivers
 
 ### Database
 
@@ -51,7 +69,148 @@ This directory contains official driver implementations for the Unicorn framewor
 |--------|---------|-------------------|
 | Prometheus | `contrib/metrics/prometheus` | Coming soon |
 
+## Quick Start - Enterprise Features
+
+### OAuth2 Authentication
+
+```go
+import "github.com/madcok-co/unicorn/contrib/auth/oauth2"
+
+// Initialize OAuth2 with Google
+auth := oauth2.NewDriver(&oauth2.Config{
+    Provider:     oauth2.ProviderGoogle,
+    ClientID:     os.Getenv("GOOGLE_CLIENT_ID"),
+    ClientSecret: os.Getenv("GOOGLE_CLIENT_SECRET"),
+    RedirectURL:  "http://localhost:8080/auth/callback",
+    Scopes:       []string{"email", "profile"},
+})
+
+app.SetAuth(auth)
+
+// In handler
+func Login(ctx *context.Context, req struct{}) (map[string]string, error) {
+    auth := ctx.Auth().(*oauth2.Driver)
+    authURL := auth.GetAuthURL("random-state")
+    return map[string]string{"redirect_url": authURL}, nil
+}
+```
+
+### RBAC Authorization
+
+```go
+import "github.com/madcok-co/unicorn/contrib/authz/rbac"
+
+// Initialize RBAC
+authz := rbac.NewDriver(&rbac.Config{
+    Roles: map[string]*rbac.Role{
+        "admin": {
+            Name:        "admin",
+            Permissions: []string{"*"}, // All permissions
+        },
+        "user": {
+            Name:        "user",
+            Permissions: []string{"read:users", "write:posts"},
+        },
+    },
+})
+
+app.SetAuthz(authz)
+
+// Check authorization
+allowed, _ := ctx.Authz().Authorize(ctx.Context(), identity, "delete", "users")
+```
+
+### Multi-Tenancy
+
+```go
+import "github.com/madcok-co/unicorn/contrib/multitenancy"
+
+// Initialize multi-tenancy
+mt := multitenancy.NewDriver(&multitenancy.Config{
+    Strategy:   multitenancy.StrategyHeader,
+    HeaderName: "X-Tenant-ID",
+    Store:      &myTenantStore{},
+})
+
+// Resolve tenant from request
+tenant, _ := mt.GetTenantFromRequest(ctx.Context(), req)
+```
+
+### Configuration Management
+
+```go
+import "github.com/madcok-co/unicorn/contrib/config"
+
+// Load config
+cfg, _ := config.NewDriver(&config.Config{
+    ConfigName:   "app",
+    ConfigPath:   "./configs",
+    ConfigType:   "yaml",
+    AutomaticEnv: true,
+    EnvPrefix:    "APP",
+})
+
+// Get values
+port := cfg.GetInt("server.port")
+dbHost := cfg.GetString("database.host")
+```
+
+### Pagination
+
+```go
+import "github.com/madcok-co/unicorn/contrib/pagination"
+
+// Offset pagination
+params := pagination.ParseOffsetParams(req.Page, req.Limit, req.Sort, req.Order)
+result := pagination.NewOffsetResult(users, total, params)
+
+// Cursor pagination
+params := pagination.ParseCursorParams(req.Cursor, req.Limit, "id", "asc")
+result := pagination.NewCursorResult(users, nextCursor, "", hasNext, false)
+```
+
+### API Versioning
+
+```go
+import "github.com/madcok-co/unicorn/contrib/versioning"
+
+// Initialize versioning
+vm := versioning.NewManager(&versioning.Config{
+    Strategy:          versioning.StrategyURL,
+    DefaultVersion:    "v1",
+    SupportedVersions: []string{"v1", "v2"},
+})
+
+// Register versioned handlers
+app.RegisterHandler(GetUserV1).HTTP("GET", "/v1/users/:id").Done()
+app.RegisterHandler(GetUserV2).HTTP("GET", "/v2/users/:id").Done()
+```
+
 ## Installation
+
+### Enterprise Features
+
+```bash
+# Authentication
+go get github.com/madcok-co/unicorn/contrib/auth/oauth2
+
+# Authorization
+go get github.com/madcok-co/unicorn/contrib/authz/rbac
+
+# Multi-Tenancy
+go get github.com/madcok-co/unicorn/contrib/multitenancy
+
+# Configuration
+go get github.com/madcok-co/unicorn/contrib/config
+
+# Pagination
+go get github.com/madcok-co/unicorn/contrib/pagination
+
+# API Versioning
+go get github.com/madcok-co/unicorn/contrib/versioning
+```
+
+### Core Drivers
 
 Install only the drivers you need:
 
