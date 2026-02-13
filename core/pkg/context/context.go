@@ -38,24 +38,28 @@ var contextPool = sync.Pool{
 // This is set once at app initialization and shared across all contexts
 type AppAdapters struct {
 	// Default adapters
-	DB        contracts.Database
-	Cache     contracts.Cache
-	Logger    contracts.Logger
-	Queue     contracts.Queue
-	Broker    contracts.Broker
-	Validator contracts.Validator
-	Metrics   contracts.Metrics
-	Tracer    contracts.Tracer
+	DB            contracts.Database
+	Cache         contracts.Cache
+	Logger        contracts.Logger
+	Queue         contracts.Queue
+	Broker        contracts.Broker
+	Validator     contracts.Validator
+	Metrics       contracts.Metrics
+	Tracer        contracts.Tracer
+	Authenticator contracts.Authenticator
+	Authorizer    contracts.Authorizer
 
 	// Named adapters (shared, read-only after init)
-	Databases  map[string]contracts.Database
-	Caches     map[string]contracts.Cache
-	Loggers    map[string]contracts.Logger
-	Queues     map[string]contracts.Queue
-	Brokers    map[string]contracts.Broker
-	Validators map[string]contracts.Validator
-	MetricsMap map[string]contracts.Metrics
-	TracersMap map[string]contracts.Tracer
+	Databases      map[string]contracts.Database
+	Caches         map[string]contracts.Cache
+	Loggers        map[string]contracts.Logger
+	Queues         map[string]contracts.Queue
+	Brokers        map[string]contracts.Broker
+	Validators     map[string]contracts.Validator
+	MetricsMap     map[string]contracts.Metrics
+	TracersMap     map[string]contracts.Tracer
+	Authenticators map[string]contracts.Authenticator
+	Authorizers    map[string]contracts.Authorizer
 }
 
 // Context adalah wrapper yang menyimpan semua dependency
@@ -357,6 +361,34 @@ func (c *Context) Validator(name ...string) contracts.Validator {
 		return nil
 	}
 	return c.app.Validator
+}
+
+// Auth returns the authenticator (lazy loaded from AppAdapters)
+func (c *Context) Auth(name ...string) contracts.Authenticator {
+	if c.app == nil {
+		return nil
+	}
+	if len(name) > 0 && name[0] != "" {
+		if c.app.Authenticators != nil {
+			return c.app.Authenticators[name[0]]
+		}
+		return nil
+	}
+	return c.app.Authenticator
+}
+
+// Authz returns the authorizer (lazy loaded from AppAdapters)
+func (c *Context) Authz(name ...string) contracts.Authorizer {
+	if c.app == nil {
+		return nil
+	}
+	if len(name) > 0 && name[0] != "" {
+		if c.app.Authorizers != nil {
+			return c.app.Authorizers[name[0]]
+		}
+		return nil
+	}
+	return c.app.Authorizer
 }
 
 // ============ Named Adapter Accessors (explicit) ============
