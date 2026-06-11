@@ -5,12 +5,15 @@ package management
 
 import (
 	"context"
+	"crypto/subtle"
 	"encoding/json"
 	"fmt"
 	"net"
 	"net/http"
 	"net/http/pprof"
 	"runtime"
+	"sort"
+	"strings"
 	"sync"
 	"sync/atomic"
 	"time"
@@ -33,6 +36,19 @@ type Config struct {
 
 	// EnableMetrics enables the /metrics endpoint. Default: true
 	EnableMetrics bool
+
+	// AllowedCIDRs restricts /metrics and /debug/pprof/* to the given CIDR ranges.
+	// Health endpoints (/health/*) are always public. Example: []string{"127.0.0.0/8", "10.0.0.0/8"}
+	AllowedCIDRs []string
+
+	// BearerToken, if set, requires "Authorization: Bearer <token>" on
+	// /metrics and /debug/pprof/* requests. Uses constant-time comparison.
+	BearerToken string
+
+	// MetricsCacheTTL controls how long runtime metrics are cached between
+	// /metrics scrapes to avoid a stop-the-world ReadMemStats on every request.
+	// Default: 5s
+	MetricsCacheTTL time.Duration
 }
 
 func (c *Config) addr() string {
@@ -92,11 +108,19 @@ type MetricProvider func() []MetricPoint
 //	GET /debug/pprof/*   — Go runtime profiler (when EnablePprof = true)
 type ManagementServer struct {
 	config   *Config
-	server   *http.Server
 	mux      *http.ServeMux
 	mu       sync.RWMutex
 	checkers map[string]HealthChecker
 	metrics  []MetricProvider
+
+	// serverMu guards the server field against races between Start and Stop.
+	serverMu sync.Mutex
+	server   *http.Server
+
+	// metricsMu guards the metrics cache.
+	metricsMu     sync.Mutex
+	cachedMetrics []MetricPoint
+	metricsExpiry time.Time
 
 	ready       atomic.Bool
 	startupDone atomic.Bool
@@ -169,14 +193,19 @@ func (s *ManagementServer) Start(ctx context.Context) error {
 		return fmt.Errorf("management server listen %s: %w", s.config.addr(), err)
 	}
 
-	s.server = &http.Server{
+	srv := &http.Server{
 		Handler:     s.mux,
 		ReadTimeout: s.config.ReadTimeout,
 	}
 
+	// Assign under mutex so Stop() never reads a partially-initialized pointer.
+	s.serverMu.Lock()
+	s.server = srv
+	s.serverMu.Unlock()
+
 	errCh := make(chan error, 1)
 	go func() {
-		if err := s.server.Serve(ln); err != nil && err != http.ErrServerClosed {
+		if err := srv.Serve(ln); err != nil && err != http.ErrServerClosed {
 			errCh <- err
 		}
 	}()
@@ -194,31 +223,80 @@ func (s *ManagementServer) Stop(ctx context.Context) error {
 	// Signal not-ready so the load balancer drains traffic before shutdown
 	s.ready.Store(false)
 
-	if s.server == nil {
+	s.serverMu.Lock()
+	srv := s.server
+	s.serverMu.Unlock()
+
+	if srv == nil {
 		return nil
 	}
-	return s.server.Shutdown(ctx)
+	return srv.Shutdown(ctx)
 }
 
 // ============ Route Registration ============
 
 func (s *ManagementServer) registerRoutes() {
+	// Health endpoints are always public — load balancers and K8s probes need them.
 	s.mux.HandleFunc("GET /health", s.handleHealth)
 	s.mux.HandleFunc("GET /health/live", s.handleLiveness)
 	s.mux.HandleFunc("GET /health/ready", s.handleReadiness)
 	s.mux.HandleFunc("GET /health/startup", s.handleStartup)
 
+	// Metrics and pprof endpoints are gated behind optional auth middleware.
 	if s.config.EnableMetrics {
-		s.mux.HandleFunc("GET /metrics", s.handleMetrics)
+		s.mux.HandleFunc("GET /metrics", s.secure(s.handleMetrics))
 	}
 
 	if s.config.EnablePprof {
-		s.mux.HandleFunc("/debug/pprof/", pprof.Index)
-		s.mux.HandleFunc("/debug/pprof/cmdline", pprof.Cmdline)
-		s.mux.HandleFunc("/debug/pprof/profile", pprof.Profile)
-		s.mux.HandleFunc("/debug/pprof/symbol", pprof.Symbol)
-		s.mux.HandleFunc("/debug/pprof/trace", pprof.Trace)
+		s.mux.HandleFunc("/debug/pprof/", s.secure(pprof.Index))
+		s.mux.HandleFunc("/debug/pprof/cmdline", s.secure(pprof.Cmdline))
+		s.mux.HandleFunc("/debug/pprof/profile", s.secure(pprof.Profile))
+		s.mux.HandleFunc("/debug/pprof/symbol", s.secure(pprof.Symbol))
+		s.mux.HandleFunc("/debug/pprof/trace", s.secure(pprof.Trace))
 	}
+}
+
+// secure wraps a handler with IP allowlist and bearer token checks.
+// Health endpoints are always public; only metrics and pprof are protected.
+func (s *ManagementServer) secure(next http.HandlerFunc) http.HandlerFunc {
+	return func(w http.ResponseWriter, r *http.Request) {
+		if len(s.config.AllowedCIDRs) > 0 && !s.isAllowedIP(r) {
+			http.Error(w, "forbidden", http.StatusForbidden)
+			return
+		}
+		if s.config.BearerToken != "" {
+			const prefix = "Bearer "
+			auth := r.Header.Get("Authorization")
+			if !strings.HasPrefix(auth, prefix) ||
+				subtle.ConstantTimeCompare([]byte(auth[len(prefix):]), []byte(s.config.BearerToken)) != 1 {
+				w.Header().Set("WWW-Authenticate", `Bearer realm="management"`)
+				http.Error(w, "unauthorized", http.StatusUnauthorized)
+				return
+			}
+		}
+		next(w, r)
+	}
+}
+
+func (s *ManagementServer) isAllowedIP(r *http.Request) bool {
+	host, _, err := net.SplitHostPort(r.RemoteAddr)
+	if err != nil {
+		host = r.RemoteAddr
+	}
+	ip := net.ParseIP(host)
+	if ip == nil {
+		return false
+	}
+	for _, cidr := range s.config.AllowedCIDRs {
+		_, network, err := net.ParseCIDR(cidr)
+		if err != nil {
+			continue
+		}
+		if network.Contains(ip) {
+			return true
+		}
+	}
+	return false
 }
 
 // ============ Health Handlers ============
@@ -298,16 +376,7 @@ func (s *ManagementServer) handleMetrics(w http.ResponseWriter, r *http.Request)
 		if pt.Type != "" {
 			fmt.Fprintf(w, "# TYPE %s %s\n", pt.Name, pt.Type)
 		}
-		if len(pt.Labels) > 0 {
-			labelStr := ""
-			first := true
-			for k, v := range pt.Labels {
-				if !first {
-					labelStr += ","
-				}
-				labelStr += fmt.Sprintf(`%s="%s"`, k, v)
-				first = false
-			}
+		if labelStr := formatLabels(pt.Labels); labelStr != "" {
 			fmt.Fprintf(w, "%s{%s} %g\n", pt.Name, labelStr, pt.Value)
 		} else {
 			fmt.Fprintf(w, "%s %g\n", pt.Name, pt.Value)
@@ -316,11 +385,25 @@ func (s *ManagementServer) handleMetrics(w http.ResponseWriter, r *http.Request)
 }
 
 // collectRuntimeMetrics gathers Go runtime stats in Prometheus exposition format.
+// Results are cached for MetricsCacheTTL (default 5s) to avoid a stop-the-world
+// runtime.ReadMemStats call on every scrape.
 func (s *ManagementServer) collectRuntimeMetrics() []MetricPoint {
+	s.metricsMu.Lock()
+	defer s.metricsMu.Unlock()
+
+	if time.Now().Before(s.metricsExpiry) {
+		return s.cachedMetrics
+	}
+
+	ttl := s.config.MetricsCacheTTL
+	if ttl == 0 {
+		ttl = 5 * time.Second
+	}
+
 	var ms runtime.MemStats
 	runtime.ReadMemStats(&ms)
 
-	return []MetricPoint{
+	points := []MetricPoint{
 		{
 			Name:  "go_goroutines",
 			Help:  "Number of goroutines that currently exist.",
@@ -364,12 +447,6 @@ func (s *ManagementServer) collectRuntimeMetrics() []MetricPoint {
 			Value: float64(ms.StackInuse),
 		},
 		{
-			Name:  "go_gc_duration_seconds_last",
-			Help:  "Duration of the last garbage collection in seconds.",
-			Type:  "gauge",
-			Value: float64(ms.PauseNs[(ms.NumGC+255)%256]) / 1e9,
-		},
-		{
 			Name:  "go_gc_cycles_total",
 			Help:  "Total number of completed GC cycles.",
 			Type:  "counter",
@@ -383,6 +460,48 @@ func (s *ManagementServer) collectRuntimeMetrics() []MetricPoint {
 			Value:  1,
 		},
 	}
+
+	// PauseNs ring buffer is only valid after at least one GC cycle.
+	if ms.NumGC > 0 {
+		points = append(points, MetricPoint{
+			Name:  "go_gc_duration_seconds_last",
+			Help:  "Duration of the last garbage collection in seconds.",
+			Type:  "gauge",
+			Value: float64(ms.PauseNs[(ms.NumGC+255)%256]) / 1e9,
+		})
+	}
+
+	s.cachedMetrics = points
+	s.metricsExpiry = time.Now().Add(ttl)
+	return points
+}
+
+// formatLabels returns a sorted, Prometheus-escaped label string.
+// Deterministic ordering prevents diff noise in time-series storage.
+func formatLabels(labels map[string]string) string {
+	if len(labels) == 0 {
+		return ""
+	}
+	keys := make([]string, 0, len(labels))
+	for k := range labels {
+		keys = append(keys, k)
+	}
+	sort.Strings(keys)
+
+	parts := make([]string, 0, len(keys))
+	for _, k := range keys {
+		parts = append(parts, k+`="`+prometheusEscape(labels[k])+`"`)
+	}
+	return strings.Join(parts, ",")
+}
+
+// prometheusEscape escapes backslash, double-quote, and newline per the
+// Prometheus text format specification (section 4 of the data model).
+func prometheusEscape(s string) string {
+	s = strings.ReplaceAll(s, `\`, `\\`)
+	s = strings.ReplaceAll(s, `"`, `\"`)
+	s = strings.ReplaceAll(s, "\n", `\n`)
+	return s
 }
 
 // ============ Helpers ============

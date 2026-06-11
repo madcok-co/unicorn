@@ -10,6 +10,7 @@ import (
 	"fmt"
 	"io"
 	"net/http"
+	"net/url"
 	"time"
 )
 
@@ -183,8 +184,8 @@ func (r *ServiceRegistrar) register(ctx context.Context) error {
 		return err
 	}
 
-	url := r.config.ConsulAddr + "/v1/agent/service/register"
-	req, err := http.NewRequestWithContext(ctx, http.MethodPut, url, bytes.NewReader(body))
+	endpoint := r.config.ConsulAddr + "/v1/agent/service/register"
+	req, err := http.NewRequestWithContext(ctx, http.MethodPut, endpoint, bytes.NewReader(body))
 	if err != nil {
 		return err
 	}
@@ -207,8 +208,8 @@ func (r *ServiceRegistrar) register(ctx context.Context) error {
 }
 
 func (r *ServiceRegistrar) deregister(ctx context.Context) error {
-	url := r.config.ConsulAddr + "/v1/agent/service/deregister/" + r.service.ID
-	req, err := http.NewRequestWithContext(ctx, http.MethodPut, url, nil)
+	endpoint := r.config.ConsulAddr + "/v1/agent/service/deregister/" + url.PathEscape(r.service.ID)
+	req, err := http.NewRequestWithContext(ctx, http.MethodPut, endpoint, nil)
 	if err != nil {
 		return err
 	}
@@ -232,8 +233,8 @@ func (r *ServiceRegistrar) deregister(ctx context.Context) error {
 // passTTL sends a passing status for the TTL check (used when the service uses TTL-based checks).
 func (r *ServiceRegistrar) passTTL(ctx context.Context) error {
 	checkID := "service:" + r.service.ID
-	url := r.config.ConsulAddr + "/v1/agent/check/pass/" + checkID
-	req, err := http.NewRequestWithContext(ctx, http.MethodPut, url, nil)
+	endpoint := r.config.ConsulAddr + "/v1/agent/check/pass/" + url.PathEscape(checkID)
+	req, err := http.NewRequestWithContext(ctx, http.MethodPut, endpoint, nil)
 	if err != nil {
 		return err
 	}

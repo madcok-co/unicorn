@@ -8,7 +8,9 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"strings"
 	"sync"
+	"sync/atomic"
 	"time"
 
 	"github.com/fsnotify/fsnotify"
@@ -44,7 +46,7 @@ type ConfigWatcher struct {
 	watcher *fsnotify.Watcher
 	mu      sync.Mutex
 	timers  map[string]*time.Timer
-	stopped chan struct{}
+	stopped atomic.Bool
 }
 
 // New creates a new ConfigWatcher. Call Start() to begin monitoring.
@@ -61,9 +63,8 @@ func New(config *Config) *ConfigWatcher {
 		}
 	}
 	return &ConfigWatcher{
-		config:  config,
-		timers:  make(map[string]*time.Timer),
-		stopped: make(chan struct{}),
+		config: config,
+		timers: make(map[string]*time.Timer),
 	}
 }
 
@@ -86,7 +87,10 @@ func (w *ConfigWatcher) Start(ctx context.Context) error {
 		// fsnotify unavailable — fall back to polling
 		return w.runPolling(ctx)
 	}
+	// Store under mu so Stop() can read w.watcher safely from another goroutine.
+	w.mu.Lock()
 	w.watcher = watcher
+	w.mu.Unlock()
 	defer watcher.Close()
 
 	// Register all paths with fsnotify.
@@ -130,14 +134,22 @@ func (w *ConfigWatcher) Start(ctx context.Context) error {
 
 // Stop implements contracts.Sidecar.
 func (w *ConfigWatcher) Stop(_ context.Context) error {
+	// Signal stopped before cancelling timers so any in-flight AfterFunc
+	// callbacks that fire after this point are no-ops.
+	w.stopped.Store(true)
+
 	w.mu.Lock()
 	for _, t := range w.timers {
 		t.Stop()
 	}
 	w.mu.Unlock()
 
-	if w.watcher != nil {
-		return w.watcher.Close()
+	w.mu.Lock()
+	fw := w.watcher
+	w.mu.Unlock()
+
+	if fw != nil {
+		return fw.Close()
 	}
 	return nil
 }
@@ -192,6 +204,10 @@ func (w *ConfigWatcher) scheduleReload(path string) {
 		t.Stop()
 	}
 	w.timers[path] = time.AfterFunc(w.config.Debounce, func() {
+		// Guard against callbacks that fire after Stop() has been called.
+		if w.stopped.Load() {
+			return
+		}
 		if err := w.loadAndNotify(path); err != nil {
 			w.config.ErrHandler(path, err)
 		}
@@ -199,7 +215,16 @@ func (w *ConfigWatcher) scheduleReload(path string) {
 }
 
 func (w *ConfigWatcher) loadAndNotify(path string) error {
-	content, err := os.ReadFile(path)
+	// Resolve symlinks to prevent reading files outside the watched directories.
+	resolved, err := filepath.EvalSymlinks(path)
+	if err != nil {
+		return fmt.Errorf("resolve symlinks %s: %w", path, err)
+	}
+	if !w.isAllowedPath(resolved) {
+		return fmt.Errorf("symlink %s resolves to %s outside watched directories", path, resolved)
+	}
+
+	content, err := os.ReadFile(resolved)
 	if err != nil {
 		return fmt.Errorf("read %s: %w", path, err)
 	}
@@ -212,6 +237,26 @@ func (w *ConfigWatcher) isTracked(path string) bool {
 	for _, p := range w.config.Paths {
 		tracked, _ := filepath.Abs(p)
 		if absPath == tracked {
+			return true
+		}
+	}
+	return false
+}
+
+// isAllowedPath reports whether a resolved (symlink-free) path is within the
+// same directory as one of the configured watched paths.
+func (w *ConfigWatcher) isAllowedPath(resolved string) bool {
+	for _, p := range w.config.Paths {
+		watched, err := filepath.Abs(p)
+		if err != nil {
+			continue
+		}
+		// Direct match or within the same parent directory.
+		if resolved == watched {
+			return true
+		}
+		dir := filepath.Dir(watched) + string(filepath.Separator)
+		if strings.HasPrefix(resolved, dir) {
 			return true
 		}
 	}
