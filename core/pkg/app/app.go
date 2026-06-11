@@ -59,7 +59,8 @@ type App struct {
 	config *Config
 
 	// Sidecars run in parallel with main adapters
-	sidecars []contracts.Sidecar
+	sidecars  []contracts.Sidecar
+	sidecarWg sync.WaitGroup // tracks goroutines that call sidecar.Start()
 
 	// Lifecycle hooks
 	onStart []func() error
@@ -585,9 +586,9 @@ func (a *App) runLegacyMode() error {
 	// Start sidecars — failures are non-fatal: logged, app keeps running
 	for _, s := range a.sidecars {
 		s := s
-		wg.Add(1)
+		a.sidecarWg.Add(1)
 		go func() {
-			defer wg.Done()
+			defer a.sidecarWg.Done()
 			if err := s.Start(a.ctx); err != nil {
 				fmt.Printf("%s⚠ Sidecar [%s] exited:%s %v\n", colorYellow, s.Name(), colorReset, err)
 				if a.adapters.Logger != nil {
@@ -631,6 +632,11 @@ func (a *App) Shutdown() error {
 
 	// Cancel context to stop all adapters
 	a.cancel()
+
+	// Wait for all sidecar Start() goroutines to return before calling Stop().
+	// This prevents Stop() from racing with an in-progress Start() (e.g. a
+	// ManagementServer whose server field has not been assigned yet).
+	a.sidecarWg.Wait()
 
 	// Stop sidecars gracefully (5s timeout)
 	if len(a.sidecars) > 0 {

@@ -11,6 +11,7 @@ import (
 	"io"
 	"net/http"
 	"os"
+	"strings"
 	"sync"
 	"time"
 )
@@ -113,18 +114,19 @@ func (r *SecretRotator) CurrentValue(name string) (string, bool) {
 // ============ Per-entry rotation loop ============
 
 func (r *SecretRotator) runEntry(ctx context.Context, e *WatchEntry) {
-	// Initial fetch
+	// Initial fetch — store the value but only fire OnRotate if ForceOnStart=true.
+	// There is no "previous value" on first run, so comparing against "" would
+	// always look like a change and break the ForceOnStart=false contract.
 	newVal, err := e.Fetch(ctx)
 	if err != nil {
 		fmt.Fprintf(os.Stderr, "[secret-rotator] initial fetch %s: %v\n", e.Name, err)
 	} else {
 		r.mu.Lock()
-		oldVal := r.values[e.Name]
 		r.values[e.Name] = newVal
 		r.mu.Unlock()
 
-		if e.OnRotate != nil && (e.ForceOnStart || newVal != oldVal) {
-			if err := e.OnRotate(ctx, e.Name, oldVal, newVal); err != nil {
+		if e.ForceOnStart && e.OnRotate != nil {
+			if err := e.OnRotate(ctx, e.Name, "", newVal); err != nil {
 				fmt.Fprintf(os.Stderr, "[secret-rotator] rotate callback %s: %v\n", e.Name, err)
 			}
 		}
@@ -284,6 +286,13 @@ func FetchFromVault(config *VaultConfig) FetchFunc {
 		config.HTTPClient = &http.Client{Timeout: 10 * time.Second}
 	}
 
+	// Reject paths with traversal sequences or query components up front.
+	if strings.Contains(config.SecretPath, "..") || strings.ContainsAny(config.SecretPath, "?#") {
+		return func(_ context.Context) (string, error) {
+			return "", fmt.Errorf("invalid vault secret path: %q", config.SecretPath)
+		}
+	}
+
 	return func(ctx context.Context) (string, error) {
 		url := config.Addr + "/v1/" + config.SecretPath
 		req, err := http.NewRequestWithContext(ctx, http.MethodGet, url, nil)
@@ -299,8 +308,9 @@ func FetchFromVault(config *VaultConfig) FetchFunc {
 		defer resp.Body.Close()
 
 		if resp.StatusCode != http.StatusOK {
-			body, _ := io.ReadAll(resp.Body)
-			return "", fmt.Errorf("vault returned %d: %s", resp.StatusCode, string(body))
+			// Discard body — it may contain sensitive data (token, secret values).
+			io.Copy(io.Discard, resp.Body)
+			return "", fmt.Errorf("vault returned HTTP %d for path %s", resp.StatusCode, config.SecretPath)
 		}
 
 		// Vault KV v2 response structure
