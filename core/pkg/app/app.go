@@ -7,6 +7,7 @@ import (
 	"os/signal"
 	"sync"
 	"syscall"
+	"time"
 
 	ucontext "github.com/madcok-co/unicorn/core/pkg/context"
 	"github.com/madcok-co/unicorn/core/pkg/contracts"
@@ -56,6 +57,9 @@ type App struct {
 
 	// Configuration
 	config *Config
+
+	// Sidecars run in parallel with main adapters
+	sidecars []contracts.Sidecar
 
 	// Lifecycle hooks
 	onStart []func() error
@@ -403,6 +407,13 @@ func (b *HandlerBuilder) Done() error {
 
 // ============ Lifecycle Hooks ============
 
+// AddSidecar registers a sidecar process to run alongside the application.
+// Sidecars start after main adapters and stop before infrastructure is closed.
+func (a *App) AddSidecar(s contracts.Sidecar) *App {
+	a.sidecars = append(a.sidecars, s)
+	return a
+}
+
 // OnStart adds a startup hook
 func (a *App) OnStart(fn func() error) *App {
 	a.onStart = append(a.onStart, fn)
@@ -571,6 +582,23 @@ func (a *App) runLegacyMode() error {
 		}
 	}
 
+	// Start sidecars — failures are non-fatal: logged, app keeps running
+	for _, s := range a.sidecars {
+		s := s
+		wg.Add(1)
+		go func() {
+			defer wg.Done()
+			if err := s.Start(a.ctx); err != nil {
+				fmt.Printf("%s⚠ Sidecar [%s] exited:%s %v\n", colorYellow, s.Name(), colorReset, err)
+				if a.adapters.Logger != nil {
+					a.adapters.Logger.Error("sidecar exited", "sidecar", s.Name(), "error", err)
+				}
+			}
+		}()
+		fmt.Printf("%s✓%s %sSidecar:%s %s%s%s\n",
+			colorGreen, colorReset, colorBold, colorReset, colorCyan, s.Name(), colorReset)
+	}
+
 	fmt.Printf("%s════════════════════════════════════════%s\n", colorDim, colorReset)
 	fmt.Printf("%s✓ Application ready!%s Press %sCtrl+C%s to stop\n",
 		colorGreen+colorBold, colorReset,
@@ -603,6 +631,20 @@ func (a *App) Shutdown() error {
 
 	// Cancel context to stop all adapters
 	a.cancel()
+
+	// Stop sidecars gracefully (5s timeout)
+	if len(a.sidecars) > 0 {
+		stopCtx, stopCancel := context.WithTimeout(context.Background(), 5*time.Second)
+		defer stopCancel()
+		for _, s := range a.sidecars {
+			if err := s.Stop(stopCtx); err != nil {
+				fmt.Printf("%s⚠ Sidecar [%s] stop error:%s %v\n", colorYellow, s.Name(), colorReset, err)
+				if a.adapters.Logger != nil {
+					a.adapters.Logger.Error("sidecar stop error", "sidecar", s.Name(), "error", err)
+				}
+			}
+		}
+	}
 
 	// Run shutdown hooks
 	for _, fn := range a.onStop {

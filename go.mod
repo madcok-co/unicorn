@@ -6,6 +6,7 @@ require (
 	github.com/IBM/sarama v1.46.3
 	github.com/alicebob/miniredis/v2 v2.35.0
 	github.com/andybalholm/brotli v1.2.0
+	github.com/fsnotify/fsnotify v1.9.0
 	github.com/go-playground/validator/v10 v10.28.0
 	github.com/redis/go-redis/v9 v9.17.0
 	github.com/spf13/viper v1.21.0
@@ -23,7 +24,6 @@ require (
 	github.com/eapache/go-resiliency v1.7.0 // indirect
 	github.com/eapache/go-xerial-snappy v0.0.0-20230731223053-c322873962e3 // indirect
 	github.com/eapache/queue v1.1.0 // indirect
-	github.com/fsnotify/fsnotify v1.9.0 // indirect
 	github.com/gabriel-vasile/mimetype v1.4.10 // indirect
 	github.com/go-playground/locales v0.14.1 // indirect
 	github.com/go-playground/universal-translator v0.18.1 // indirect

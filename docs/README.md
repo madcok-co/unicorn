@@ -20,13 +20,14 @@ Unicorn is a batteries-included Go framework where developers only need to focus
 ### Production Features
 8. [Middleware](./middleware.md) - Production-ready middleware
 9. [Resilience Patterns](./resilience.md) - Circuit breaker, retry, bulkhead
+10. [Sidecar Pattern](./sidecar.md) - Health probes, metrics, config watch, service discovery, secret rotation
 
 ### Reference
-10. [API Reference](./api-reference.md) - Complete API documentation
-11. [Benchmarks](./benchmarks.md) - Performance benchmarks
-12. [Framework Comparison](./comparison.md) - vs Gin, Echo, Fiber, etc.
-13. [Best Practices](./best-practices.md) - Production recommendations
-14. [Examples](./examples.md) - Complete example applications
+11. [API Reference](./api-reference.md) - Complete API documentation
+12. [Benchmarks](./benchmarks.md) - Performance benchmarks
+13. [Framework Comparison](./comparison.md) - vs Gin, Echo, Fiber, etc.
+14. [Best Practices](./best-practices.md) - Production recommendations
+15. [Examples](./examples.md) - Complete example applications
 
 ## Quick Start
 
@@ -100,6 +101,7 @@ func main() {
 - **Built-in Security**: JWT, API Key auth, rate limiting, encryption, audit logging
 - **Production Middleware**: Recovery, CORS, Timeout, Rate Limiting, Auth
 - **Resilience Patterns**: Circuit Breaker, Retry with Backoff, Bulkhead
+- **Sidecar Support**: Management server, config watch, service discovery, secret rotation
 - **Observability**: Metrics, tracing, structured logging, health checks
 - **Multi-Service Mode**: Run multiple services independently or together
 - **High Performance**: Zero-allocation context pooling (~38ns per request)
