@@ -767,3 +767,376 @@ annotations:
 
 This ensures health checks from Kubernetes reach the management server
 directly without going through the mesh proxy.
+
+---
+
+## Deploying on AWS (without Kubernetes)
+
+All sidecars work on AWS EC2, ECS (Fargate and EC2 launch type), and Lambda
+with no changes to the core API. The only differences are:
+
+| Concern | Kubernetes | AWS (no K8s) |
+|---------|-----------|--------------|
+| Health probes | `livenessProbe` / `readinessProbe` YAML | ALB target group health check |
+| Service discovery | Consul / CoreDNS | AWS Cloud Map |
+| Secrets | Vault / K8s Secrets | AWS Secrets Manager |
+| Config | ConfigMap volume mount | Parameter Store / AppConfig / EFS |
+| Metrics | Prometheus Operator scrape | CloudWatch agent / ADOT collector |
+
+### ManagementServer — ALB Health Check
+
+No code changes. Configure the ALB target group to hit the management port:
+
+```
+ALB Target Group Health Check:
+  Protocol:            HTTP
+  Path:                /health/live
+  Port:                9090 (override)
+  Healthy threshold:   2
+  Unhealthy threshold: 3
+  Timeout:             5s
+  Interval:            30s
+  Success codes:       200
+```
+
+For ECS task definition, expose the management port alongside the app port:
+
+```json
+{
+  "portMappings": [
+    { "containerPort": 8080, "hostPort": 8080, "protocol": "tcp" },
+    { "containerPort": 9090, "hostPort": 9090, "protocol": "tcp" }
+  ]
+}
+```
+
+The `/metrics` endpoint works as-is with the **CloudWatch agent** or
+**AWS Distro for OpenTelemetry (ADOT)** configured to scrape Prometheus:
+
+```yaml
+# cloudwatch-agent config (prometheus scrape)
+prometheus:
+  prometheus_config_path: /etc/prometheusconfig.yaml
+# prometheusconfig.yaml
+scrape_configs:
+  - job_name: my-service
+    static_configs:
+      - targets: ["localhost:9090"]
+```
+
+### SecretRotator — AWS Secrets Manager
+
+The `AWSSecretGetter` functional interface lets you inject the AWS SDK client
+without the framework importing any AWS packages:
+
+```go
+import (
+    "github.com/aws/aws-sdk-go-v2/aws"
+    "github.com/aws/aws-sdk-go-v2/config"
+    "github.com/aws/aws-sdk-go-v2/service/secretsmanager"
+    "github.com/madcok-co/unicorn/contrib/sidecar/secretrotator"
+)
+
+// Load AWS config — picks up IAM role automatically on ECS/EC2
+awsCfg, _ := config.LoadDefaultConfig(context.Background())
+client := secretsmanager.NewFromConfig(awsCfg)
+
+// Wrap the SDK call into AWSSecretGetter
+getter := secretrotator.AWSSecretGetter(func(ctx context.Context, secretID string) (string, error) {
+    out, err := client.GetSecretValue(ctx, &secretsmanager.GetSecretValueInput{
+        SecretId: aws.String(secretID),
+    })
+    if err != nil {
+        return "", err
+    }
+    if out.SecretString != nil {
+        return *out.SecretString, nil
+    }
+    return string(out.SecretBinary), nil
+})
+```
+
+**Plain string secret:**
+
+```go
+rotator := secretrotator.New().
+    Watch(&secretrotator.WatchEntry{
+        Name:     "api-key",
+        Interval: time.Hour,
+        Fetch:    secretrotator.FetchFromAWSSecretsManager("prod/myapp/api-key", getter),
+        OnRotate: func(ctx context.Context, _, _, newVal string) error {
+            thirdPartyClient.SetAPIKey(newVal)
+            return nil
+        },
+    })
+```
+
+**JSON secret (RDS credentials, the most common pattern):**
+
+AWS Secrets Manager auto-rotates RDS passwords as JSON:
+
+```json
+{
+  "username": "admin",
+  "password": "new-rotated-password",
+  "engine":   "mysql",
+  "host":     "mydb.cluster-xxxx.us-east-1.rds.amazonaws.com",
+  "port":     "3306",
+  "dbname":   "myapp"
+}
+```
+
+```go
+rotator := secretrotator.New().
+    Watch(&secretrotator.WatchEntry{
+        Name:     "rds-password",
+        Interval: 5 * time.Minute,
+        Fetch:    secretrotator.FetchFromAWSSecretsManagerJSON(
+            "prod/myapp/rds",  // secret name
+            "password",        // field to extract
+            getter,
+        ),
+        OnRotate: func(ctx context.Context, _, _, newVal string) error {
+            return reconnectRDS(ctx, newVal)
+        },
+        ForceOnStart: true,
+    })
+```
+
+**IAM permissions required:**
+
+```json
+{
+  "Effect": "Allow",
+  "Action": [
+    "secretsmanager:GetSecretValue",
+    "secretsmanager:DescribeSecret"
+  ],
+  "Resource": "arn:aws:secretsmanager:us-east-1:123456789:secret:prod/myapp/*"
+}
+```
+
+Attach this policy to the **ECS task role** or **EC2 instance profile** —
+no hardcoded credentials needed.
+
+### ServiceRegistrar — AWS Cloud Map
+
+AWS Cloud Map is the native service discovery for ECS/EC2. Use it instead
+of (or alongside) Consul:
+
+```go
+import (
+    "github.com/aws/aws-sdk-go-v2/aws"
+    "github.com/aws/aws-sdk-go-v2/config"
+    "github.com/aws/aws-sdk-go-v2/service/servicediscovery"
+    sdtypes "github.com/aws/aws-sdk-go-v2/service/servicediscovery/types"
+    "github.com/madcok-co/unicorn/contrib/sidecar/discovery"
+)
+
+awsCfg, _ := config.LoadDefaultConfig(context.Background())
+sdClient := servicediscovery.NewFromConfig(awsCfg)
+
+registrar := discovery.NewAWSCloudMap(
+    &discovery.AWSCloudMapInstance{
+        NamespaceID: "ns-xxxxxxxxxxxx",
+        ServiceID:   "srv-xxxxxxxxxxxx",
+        InstanceID:  os.Getenv("ECS_CONTAINER_METADATA_URI"), // unique per task
+        Attributes: map[string]string{
+            "AWS_INSTANCE_IPV4": os.Getenv("POD_IP"),
+            "AWS_INSTANCE_PORT": "8080",
+        },
+        HeartbeatInterval: 20 * time.Second,
+    },
+    // register
+    func(ctx context.Context, inst *discovery.AWSCloudMapInstance) error {
+        _, err := sdClient.RegisterInstance(ctx, &servicediscovery.RegisterInstanceInput{
+            ServiceId:  aws.String(inst.ServiceID),
+            InstanceId: aws.String(inst.InstanceID),
+            Attributes: inst.Attributes,
+        })
+        return err
+    },
+    // deregister
+    func(ctx context.Context, serviceID, instanceID string) error {
+        _, err := sdClient.DeregisterInstance(ctx, &servicediscovery.DeregisterInstanceInput{
+            ServiceId:  aws.String(serviceID),
+            InstanceId: aws.String(instanceID),
+        })
+        return err
+    },
+    // health update (custom health check)
+    func(ctx context.Context, serviceID, instanceID string) error {
+        _, err := sdClient.UpdateInstanceCustomHealthStatus(ctx,
+            &servicediscovery.UpdateInstanceCustomHealthStatusInput{
+                ServiceId:  aws.String(serviceID),
+                InstanceId: aws.String(instanceID),
+                Status:     sdtypes.CustomHealthStatusHealthy,
+            })
+        return err
+    },
+)
+```
+
+Pass `nil` as the health function if you rely on Route 53 health checks
+configured on the Cloud Map service instead.
+
+### ConfigWatcher — AWS AppConfig / Parameter Store
+
+For config stored in AWS Parameter Store or AppConfig, implement a custom
+fetcher using the same `OnReload` callback pattern:
+
+```go
+import (
+    "github.com/aws/aws-sdk-go-v2/service/ssm"
+    "github.com/madcok-co/unicorn/contrib/sidecar/configwatcher"
+)
+
+ssmClient := ssm.NewFromConfig(awsCfg)
+
+// Poll Parameter Store every 30s for config changes
+watcher := configwatcher.New(&configwatcher.Config{
+    Paths:        []string{"/myapp/config"},   // used as identifier in OnReload
+    PollInterval: 30 * time.Second,
+    OnReload: func(path string, _ []byte) error {
+        // Fetch fresh config from Parameter Store
+        out, err := ssmClient.GetParameter(ctx, &ssm.GetParameterInput{
+            Name:           aws.String("/myapp/config"),
+            WithDecryption: aws.Bool(true),
+        })
+        if err != nil {
+            return err
+        }
+        return cfg.ReloadJSON([]byte(aws.ToString(out.Parameter.Value)))
+    },
+})
+```
+
+For file-based config on ECS with EFS mount or baked-in config files, the
+standard `ConfigWatcher` works with no changes.
+
+### Full AWS Production Example
+
+```go
+package main
+
+import (
+    "context"
+    "fmt"
+    "os"
+    "time"
+
+    "github.com/aws/aws-sdk-go-v2/aws"
+    awsconfig "github.com/aws/aws-sdk-go-v2/config"
+    "github.com/aws/aws-sdk-go-v2/service/secretsmanager"
+    httpAdapter "github.com/madcok-co/unicorn/core/pkg/adapters/http"
+    "github.com/madcok-co/unicorn/core/pkg/app"
+    "github.com/madcok-co/unicorn/core/pkg/context"
+    "github.com/madcok-co/unicorn/contrib/sidecar/management"
+    "github.com/madcok-co/unicorn/contrib/sidecar/secretrotator"
+)
+
+func main() {
+    // AWS config — automatically uses ECS task role / EC2 instance profile
+    awsCfg, err := awsconfig.LoadDefaultConfig(context.Background())
+    if err != nil {
+        fmt.Fprintf(os.Stderr, "aws config: %v\n", err)
+        os.Exit(1)
+    }
+    smClient := secretsmanager.NewFromConfig(awsCfg)
+
+    // AWSSecretGetter wraps the SDK call
+    getter := secretrotator.AWSSecretGetter(func(ctx context.Context, secretID string) (string, error) {
+        out, err := smClient.GetSecretValue(ctx, &secretsmanager.GetSecretValueInput{
+            SecretId: aws.String(secretID),
+        })
+        if err != nil {
+            return "", err
+        }
+        if out.SecretString != nil {
+            return *out.SecretString, nil
+        }
+        return string(out.SecretBinary), nil
+    })
+
+    // Management server — ALB health check points to :9090/health/live
+    mgmt := management.New(&management.Config{
+        Port:          9090,
+        EnableMetrics: true,  // scraped by ADOT / CloudWatch agent
+        EnablePprof:   false, // disable in production if not needed
+    })
+    mgmt.AddChecker("database", dbHealthChecker)
+
+    // Secret rotation from AWS Secrets Manager
+    rotator := secretrotator.New().
+        Watch(&secretrotator.WatchEntry{
+            Name:     "rds-password",
+            Interval: 5 * time.Minute,
+            Fetch: secretrotator.FetchFromAWSSecretsManagerJSON(
+                "prod/payment-service/rds",
+                "password",
+                getter,
+            ),
+            OnRotate: func(ctx context.Context, _, _, newVal string) error {
+                return reconnectRDS(ctx, newVal)
+            },
+            ForceOnStart: true,
+        }).
+        Watch(&secretrotator.WatchEntry{
+            Name:     "stripe-key",
+            Interval: 24 * time.Hour,
+            Fetch:    secretrotator.FetchFromAWSSecretsManager("prod/payment-service/stripe", getter),
+            OnRotate: func(ctx context.Context, _, _, newVal string) error {
+                stripeClient.SetKey(newVal)
+                return nil
+            },
+        })
+
+    application := app.New(&app.Config{
+        Name:       "payment-service",
+        Version:    "2.4.1",
+        EnableHTTP: true,
+        HTTP:       &httpAdapter.Config{Host: "0.0.0.0", Port: 8080},
+    }).
+        AddSidecar(mgmt).
+        AddSidecar(rotator)
+
+    application.RegisterHandler(ProcessPayment).
+        HTTP("POST", "/payments").
+        Done()
+
+    application.OnStart(func() error {
+        mgmt.SetStartupComplete()
+        return nil
+    })
+
+    if err := application.Start(); err != nil {
+        os.Exit(1)
+    }
+}
+```
+
+### IAM Permissions Summary
+
+```json
+{
+  "Version": "2012-10-17",
+  "Statement": [
+    {
+      "Sid": "SecretsManager",
+      "Effect": "Allow",
+      "Action": ["secretsmanager:GetSecretValue", "secretsmanager:DescribeSecret"],
+      "Resource": "arn:aws:secretsmanager:*:*:secret:prod/myapp/*"
+    },
+    {
+      "Sid": "CloudMap",
+      "Effect": "Allow",
+      "Action": [
+        "servicediscovery:RegisterInstance",
+        "servicediscovery:DeregisterInstance",
+        "servicediscovery:UpdateInstanceCustomHealthStatus"
+      ],
+      "Resource": "*"
+    }
+  ]
+}
+```
