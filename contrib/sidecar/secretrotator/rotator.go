@@ -186,6 +186,73 @@ func FetchFromEnv(envKey string) FetchFunc {
 	}
 }
 
+// ============ AWS Secrets Manager ============
+
+// AWSSecretGetter fetches the raw string value of a secret from AWS Secrets Manager.
+// Implement this using the AWS SDK — the framework stays SDK-version agnostic:
+//
+//	import (
+//	    "github.com/aws/aws-sdk-go-v2/aws"
+//	    "github.com/aws/aws-sdk-go-v2/service/secretsmanager"
+//	)
+//
+//	client := secretsmanager.NewFromConfig(awsCfg)
+//	getter := secretrotator.AWSSecretGetter(func(ctx context.Context, secretID string) (string, error) {
+//	    out, err := client.GetSecretValue(ctx, &secretsmanager.GetSecretValueInput{
+//	        SecretId: aws.String(secretID),
+//	    })
+//	    if err != nil {
+//	        return "", err
+//	    }
+//	    if out.SecretString != nil {
+//	        return *out.SecretString, nil
+//	    }
+//	    return string(out.SecretBinary), nil
+//	})
+type AWSSecretGetter func(ctx context.Context, secretID string) (string, error)
+
+// FetchFromAWSSecretsManager creates a FetchFunc that retrieves a plain-string
+// secret from AWS Secrets Manager. Use this when the secret value is a single string.
+//
+// For JSON-formatted secrets (multiple fields), use FetchFromAWSSecretsManagerJSON.
+func FetchFromAWSSecretsManager(secretID string, getter AWSSecretGetter) FetchFunc {
+	return func(ctx context.Context) (string, error) {
+		val, err := getter(ctx, secretID)
+		if err != nil {
+			return "", fmt.Errorf("aws secrets manager get %q: %w", secretID, err)
+		}
+		return val, nil
+	}
+}
+
+// FetchFromAWSSecretsManagerJSON creates a FetchFunc that retrieves a specific
+// field from a JSON-formatted AWS Secrets Manager secret.
+//
+// AWS Secrets Manager typically stores RDS/Redshift credentials as JSON:
+//
+//	{"username": "admin", "password": "s3cr3t", "host": "db.us-east-1.rds.amazonaws.com", "port": "5432"}
+//
+// Use field = "password" to extract only the password value.
+func FetchFromAWSSecretsManagerJSON(secretID, field string, getter AWSSecretGetter) FetchFunc {
+	return func(ctx context.Context) (string, error) {
+		raw, err := getter(ctx, secretID)
+		if err != nil {
+			return "", fmt.Errorf("aws secrets manager get %q: %w", secretID, err)
+		}
+		var data map[string]string
+		if err := json.Unmarshal([]byte(raw), &data); err != nil {
+			return "", fmt.Errorf("parse secret %q as JSON: %w", secretID, err)
+		}
+		val, ok := data[field]
+		if !ok {
+			return "", fmt.Errorf("field %q not found in secret %q", field, secretID)
+		}
+		return val, nil
+	}
+}
+
+// ============ HashiCorp Vault ============
+
 // VaultConfig holds configuration for FetchFromVault.
 type VaultConfig struct {
 	// Addr is the Vault server address. Default: http://127.0.0.1:8200
