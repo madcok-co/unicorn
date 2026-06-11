@@ -376,6 +376,161 @@ func TestIsAllowedPath(t *testing.T) {
 	}
 }
 
+// ============ Name ============
+
+func TestConfigWatcher_Name(t *testing.T) {
+	w := New(&Config{Paths: []string{"x.yaml"}, OnReload: func(_ string, _ []byte) error { return nil }})
+	if w.Name() != "config-watcher" {
+		t.Fatalf("expected 'config-watcher', got %q", w.Name())
+	}
+}
+
+// ============ isTracked ============
+
+func TestIsTracked(t *testing.T) {
+	dir := t.TempDir()
+	cfgPath := filepath.Join(dir, "config.yaml")
+
+	w := New(&Config{
+		Paths:    []string{cfgPath},
+		OnReload: func(_ string, _ []byte) error { return nil },
+	})
+
+	if !w.isTracked(cfgPath) {
+		t.Fatal("expected tracked path to return true")
+	}
+	other := filepath.Join(dir, "other.yaml")
+	if w.isTracked(other) {
+		t.Fatal("unregistered path should not be tracked")
+	}
+}
+
+// ============ Polling fallback ============
+
+func TestConfigWatcher_RunPolling_DetectsNewFile(t *testing.T) {
+	// When a watched file doesn't exist at startup, runPolling should detect
+	// it once it is created (snapshot is empty → !ok → triggers reload).
+	dir := t.TempDir()
+	cfgPath := filepath.Join(dir, "config.yaml")
+
+	loaded := make(chan []byte, 1)
+	w := New(&Config{
+		Paths:        []string{cfgPath},
+		PollInterval: 20 * time.Millisecond,
+		OnReload: func(_ string, content []byte) error {
+			select {
+			case loaded <- content:
+			default:
+			}
+			return nil
+		},
+		ErrHandler: func(_ string, _ error) {}, // suppress initial "file not found"
+	})
+
+	ctx, cancel := context.WithTimeout(context.Background(), 2*time.Second)
+	defer cancel()
+
+	go w.runPolling(ctx)
+
+	// Let snapshot be taken (file missing → empty snapshot)
+	time.Sleep(50 * time.Millisecond)
+
+	// Now create the file — poll should detect it on next tick
+	writeFile(t, cfgPath, "created-content")
+
+	select {
+	case content := <-loaded:
+		if string(content) != "created-content" {
+			t.Fatalf("expected 'created-content', got %q", string(content))
+		}
+	case <-ctx.Done():
+		t.Fatal("timed out waiting for polling to detect new file")
+	}
+}
+
+func TestConfigWatcher_RunPolling_DetectsModification(t *testing.T) {
+	dir := t.TempDir()
+	cfgPath := filepath.Join(dir, "config.yaml")
+	writeFile(t, cfgPath, "original")
+
+	reloaded := make(chan []byte, 1)
+	w := New(&Config{
+		Paths:        []string{cfgPath},
+		PollInterval: 20 * time.Millisecond,
+		OnReload: func(_ string, content []byte) error {
+			select {
+			case reloaded <- content:
+			default:
+			}
+			return nil
+		},
+	})
+
+	ctx, cancel := context.WithTimeout(context.Background(), 2*time.Second)
+	defer cancel()
+
+	go w.runPolling(ctx)
+
+	// Allow snapshot to be taken before modifying the file.
+	time.Sleep(50 * time.Millisecond)
+	writeFile(t, cfgPath, "modified")
+
+	select {
+	case content := <-reloaded:
+		if string(content) != "modified" {
+			t.Fatalf("expected 'modified', got %q", string(content))
+		}
+	case <-ctx.Done():
+		t.Fatal("timed out waiting for poll to detect modification")
+	}
+}
+
+func TestConfigWatcher_TakeSnapshots(t *testing.T) {
+	dir := t.TempDir()
+	existsPath := filepath.Join(dir, "exists.yaml")
+	missingPath := filepath.Join(dir, "missing.yaml")
+	writeFile(t, existsPath, "data")
+
+	w := New(&Config{
+		Paths:    []string{existsPath, missingPath},
+		OnReload: func(_ string, _ []byte) error { return nil },
+	})
+
+	snaps := w.takeSnapshots()
+
+	if _, ok := snaps[existsPath]; !ok {
+		t.Fatal("existing file should appear in snapshots")
+	}
+	if _, ok := snaps[missingPath]; ok {
+		t.Fatal("missing file should NOT appear in snapshots")
+	}
+}
+
+// ============ fileModTime ============
+
+func TestFileModTime_ExistingFile(t *testing.T) {
+	f, err := os.CreateTemp(t.TempDir(), "*.txt")
+	if err != nil {
+		t.Fatal(err)
+	}
+	f.Close()
+
+	mt, err := fileModTime(f.Name())
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if mt.IsZero() {
+		t.Fatal("expected non-zero mod time")
+	}
+}
+
+func TestFileModTime_MissingFile(t *testing.T) {
+	_, err := fileModTime("/nonexistent/path/to/file.yaml")
+	if err == nil {
+		t.Fatal("expected error for missing file")
+	}
+}
+
 // ============ Helper ============
 
 func writeFile(t *testing.T, path, content string) {

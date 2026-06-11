@@ -239,6 +239,22 @@ func TestServiceRegistrar_Name(t *testing.T) {
 	}
 }
 
+// ============ formatDuration ============
+
+func TestFormatDuration_NonZero(t *testing.T) {
+	got := formatDuration(5 * time.Second)
+	if got != "5s" {
+		t.Fatalf("expected '5s', got %q", got)
+	}
+}
+
+func TestFormatDuration_Zero(t *testing.T) {
+	got := formatDuration(0)
+	if got != "" {
+		t.Fatalf("expected empty string for zero duration, got %q", got)
+	}
+}
+
 // ============ Helper ============
 
 func mockConsul(t *testing.T, h http.HandlerFunc) *httptest.Server {

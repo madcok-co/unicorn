@@ -412,6 +412,117 @@ func TestManagementServer_StopBeforeStart_Concurrent(t *testing.T) {
 	wg.Wait()
 }
 
+// ============ Name ============
+
+func TestManagementServer_Name(t *testing.T) {
+	s := New(&Config{Host: "127.0.0.1", Port: 9090})
+	name := s.Name()
+	if !strings.Contains(name, "9090") {
+		t.Fatalf("expected port in Name(), got %q", name)
+	}
+	if !strings.Contains(name, "management") {
+		t.Fatalf("expected 'management' in Name(), got %q", name)
+	}
+}
+
+func TestManagementServer_Name_DefaultPort(t *testing.T) {
+	s := New(nil)
+	name := s.Name()
+	// Default port is 9090
+	if !strings.Contains(name, "9090") {
+		t.Fatalf("expected default port 9090 in Name(), got %q", name)
+	}
+}
+
+// ============ Pprof routes ============
+
+func TestManagementServer_Pprof_Enabled(t *testing.T) {
+	s := New(&Config{EnablePprof: true})
+	rec := serveHTTP(s, "GET", "/debug/pprof/", nil)
+
+	if rec.Code != http.StatusOK {
+		t.Fatalf("expected 200 for /debug/pprof/ when enabled, got %d", rec.Code)
+	}
+}
+
+func TestManagementServer_Pprof_Disabled(t *testing.T) {
+	s := New(&Config{EnablePprof: false})
+	rec := serveHTTP(s, "GET", "/debug/pprof/", nil)
+
+	if rec.Code != http.StatusNotFound {
+		t.Fatalf("expected 404 for /debug/pprof/ when disabled, got %d", rec.Code)
+	}
+}
+
+func TestManagementServer_Pprof_Protected_BearerToken(t *testing.T) {
+	s := New(&Config{EnablePprof: true, BearerToken: "secret"})
+
+	// No token → 401
+	rec := serveHTTP(s, "GET", "/debug/pprof/", nil)
+	if rec.Code != http.StatusUnauthorized {
+		t.Fatalf("expected 401 for pprof without token, got %d", rec.Code)
+	}
+
+	// Valid token → 200
+	req := httptest.NewRequest("GET", "/debug/pprof/", nil)
+	req.Header.Set("Authorization", "Bearer secret")
+	rec2 := httptest.NewRecorder()
+	s.mux.ServeHTTP(rec2, req)
+	if rec2.Code != http.StatusOK {
+		t.Fatalf("expected 200 for pprof with valid token, got %d", rec2.Code)
+	}
+}
+
+func TestManagementServer_Pprof_Protected_CIDR(t *testing.T) {
+	s := New(&Config{EnablePprof: true, AllowedCIDRs: []string{"10.0.0.0/8"}})
+
+	// Default request (192.0.2.x) outside 10.0.0.0/8 → 403
+	rec := serveHTTP(s, "GET", "/debug/pprof/", nil)
+	if rec.Code != http.StatusForbidden {
+		t.Fatalf("expected 403 for pprof from disallowed IP, got %d", rec.Code)
+	}
+}
+
+// ============ addr helper ============
+
+func TestConfig_addr_Defaults(t *testing.T) {
+	c := &Config{}
+	if c.addr() != "0.0.0.0:9090" {
+		t.Fatalf("expected '0.0.0.0:9090', got %q", c.addr())
+	}
+}
+
+func TestConfig_addr_Custom(t *testing.T) {
+	c := &Config{Host: "127.0.0.1", Port: 8888}
+	if c.addr() != "127.0.0.1:8888" {
+		t.Fatalf("expected '127.0.0.1:8888', got %q", c.addr())
+	}
+}
+
+// ============ Readiness sequence ============
+
+func TestManagementServer_SetReady_Cycle(t *testing.T) {
+	s := New(nil)
+
+	// Initial state: not ready
+	rec := serveHTTP(s, "GET", "/health/ready", nil)
+	if rec.Code != http.StatusServiceUnavailable {
+		t.Fatalf("expected 503 before SetReady(true), got %d", rec.Code)
+	}
+
+	s.SetReady(true)
+	rec = serveHTTP(s, "GET", "/health/ready", nil)
+	if rec.Code != http.StatusOK {
+		t.Fatalf("expected 200 after SetReady(true), got %d", rec.Code)
+	}
+
+	s.SetReady(false)
+	rec = serveHTTP(s, "GET", "/health/ready", nil)
+	if rec.Code != http.StatusServiceUnavailable {
+		t.Fatalf("expected 503 after SetReady(false), got %d", rec.Code)
+	}
+}
+
 // ============ Helper functions ============
 
 func serveHTTP(s *ManagementServer, method, path string, headers map[string]string) *httptest.ResponseRecorder {
