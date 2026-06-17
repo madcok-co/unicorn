@@ -1,47 +1,47 @@
-# Migration Guide — Existing Service ke Unicorn
+# Migration Guide — Migrating Existing Services to Unicorn
 
-> **Goal**: Smooth, incremental migration tanpa full rewrite dan tanpa downtime.
+> **Goal**: Smooth, incremental migration without a full rewrite or downtime.
 
-## Prinsip
+## Principle
 
 ```
-Jangan migrasi service sekaligus.
-Migrasi handler-by-handler.
-Semua yang belum dimigrasi tetap berjalan normal.
+Don't migrate the entire service at once.
+Migrate handler by handler.
+Everything not yet migrated keeps running normally.
 ```
 
-Unicorn mendukung **hybrid deployment**: kode lama dan baru bisa jalan berdampingan dalam binary yang sama.
+Unicorn supports **hybrid deployment**: old and new code can coexist in the same binary.
 
 ---
 
 ## Phase 0: Assessment
 
-| Yang Perlu Dicek | Contoh |
-|-----------------|--------|
-| Framework saat ini | Gin, Echo, Fiber, net/http, Chi |
+| Check | Example |
+|-------|---------|
+| Current framework | Gin, Echo, Fiber, net/http, Chi |
 | Handler signature | `func(c *gin.Context)`, `func(w http.ResponseWriter, r *http.Request)` |
-| Middleware stack | Recovery, CORS, Auth, Logging, Rate limit |
-| Infrastructure access | DB, Cache, Logger — langsung panggil library atau via interface? |
-| Route count | Total endpoint yang perlu dimigrasi |
+| Middleware stack | Recovery, CORS, Auth, Logging, Rate limiting |
+| Infrastructure access | DB, Cache, Logger — direct calls or via interfaces? |
+| Route count | Total endpoints to migrate |
 
 ```bash
-# Estimasi effort
-grep -r "^func.*Handler\|^func.*handler\|router\." ./internal/ | wc -l
+# Estimate effort
+grep -r "router\.\|^func.*Handler\|^func.*handler" ./internal/ | wc -l
 ```
 
 ---
 
-## Phase 1: Co-Exist (Tanpa Ubah Kode Existing)
+## Phase 1: Co-Exist (No Changes to Existing Code)
 
-Strategi: **Unicorn berjalan SAMPING** service existing, sharing infrastructure yang sama.
+Strategy: **Unicorn runs ALONGSIDE** the existing service, sharing the same infrastructure.
 
 ```
 Port 8080 (existing)          Port 8081 (unicorn)
 ┌──────────────────────┐      ┌──────────────────────┐
-│ Gin / Echo / net/http │      │ Unicorn              │
-│ POST /users (lama)    │      │ GET /users (baru)    │
-│ GET  /users/:id (lama)│      │ POST /orders (baru)  │
-│ shared infra          │      │ shared infra         │
+│ Gin / Echo / net/http│      │ Unicorn              │
+│ POST /users (old)    │      │ GET /users (new)     │
+│ GET  /users/:id (old)│      │ POST /orders (new)   │
+│ shared infra         │      │ shared infra         │
 └──────────┬───────────┘      └──────────┬───────────┘
            │                             │
            └──────────┬──────────────────┘
@@ -49,68 +49,67 @@ Port 8080 (existing)          Port 8081 (unicorn)
             DB / Cache / Logger
 ```
 
-### 1a. Bungkus Infrastructure Existing Jadi Unicorn Adapter
+### 1a. Wrap Existing Infrastructure as Unicorn Adapters
 
-Infrastructure paling gampang dimigrasi duluan karena Unicorn adapter pattern.
+Infrastructure is the easiest part to migrate first thanks to the adapter pattern.
 
 ```go
-// Existing: kode lamamu langsung panggil *sql.DB
+// Existing: code directly calls *sql.DB
 var db *sql.DB
 
-// Bridge: bungkus jadi Unicorn Database adapter
+// Bridge: wrap into a Unicorn Database adapter
 type existingDBBridge struct {
     raw *sql.DB
 }
 
 func (b *existingDBBridge) Create(ctx context.Context, entity any) error {
-    // Panggil query existing
     _, err := b.raw.ExecContext(ctx, "INSERT INTO ...", entity)
     return err
 }
 
-// ... implement contracts.Database lainnya
+// ... implement remaining contracts.Database methods
 
 app.SetDB(&existingDBBridge{raw: db})
 ```
 
-**Keuntungan:** Satu koneksi pool, dua framework. Tidak perlu duplikasi config atau koneksi.
+**Benefit:** Single connection pool, two frameworks. No duplicated config or connections.
 
-### 1b. Registrasi Handler Unicorn di Port Berbeda
+### 1b. Run Unicorn on a Separate Port
 
 ```go
 func main() {
-    // App Unicorn di port 8081
+    // Unicorn app on port 8081
     unicornApp := unicorn.New(&unicorn.Config{
         Name:       "migrated-service",
         EnableHTTP: true,
-        HTTP: &httpAdapter.Config{Port: 8081},
+        HTTP:       &httpAdapter.Config{Port: 8081},
     })
 
-    // Bridge infrastructure yang sudah ada
+    // Bridge existing infrastructure
     unicornApp.SetDB(&existingDBBridge{raw: db})
     unicornApp.SetLogger(&existingLoggerBridge{raw: logger})
     unicornApp.SetCache(&existingCacheBridge{raw: cache})
 
-    // Migrasi handler satu per satu
+    // Migrate handlers one by one
     unicornApp.RegisterHandler(GetUser).HTTP("GET", "/users/:id").Done()
     unicornApp.RegisterHandler(CreateOrder).HTTP("POST", "/orders").Done()
 
-    // Service lama tetap jalan
+    // Old service keeps running
     go startOldService(":8080")
 
-    // Service Unicorn jalan
+    // Unicorn starts
     unicornApp.Start()
 }
 ```
 
-**Test:** `curl localhost:8081/users/123` → response Unicorn.
-**Bandingkan:** `curl localhost:8080/users/123` → response existing.
+**Test:** `curl localhost:8081/users/123` → Unicorn response.
+**Compare:** `curl localhost:8080/users/123` → existing response.
 
 ---
 
-## Phase 2: Handler Migration (Satu Per Satu)
+## Phase 2: Handler Migration (One at a Time)
 
-### 2a. Mapping Handler Signature Per Framework
+### 2a. Handler Signature Mapping Per Framework
 
 ```go
 // === Gin → Unicorn ===
@@ -146,14 +145,28 @@ func GetUser(c echo.Context) error {
 
 // Unicorn
 func GetUser(ctx *unicorn.Context, req GetUserRequest) (*User, error) {
-    // req.ID sudah terisi otomatis dari path parameter
+    // req.ID is automatically populated from the path parameter
     return &User{ID: req.ID}, nil
 }
 ```
 
-### 2b. Migrasi Middleware
+```go
+// === net/http → Unicorn ===
 
-Unicorn middleware pakai `*context.Context`, bukan `*gin.Context`.
+// net/http
+func GetUser(w http.ResponseWriter, r *http.Request) {
+    id := r.PathValue("id")
+    json.NewEncoder(w).Encode(user)
+}
+
+// Unicorn
+func GetUser(ctx *unicorn.Context, req GetUserRequest) (*User, error) {
+    ctx.DB().FindByID(ctx.Context(), req.ID, &user)
+    return user, nil
+}
+```
+
+### 2b. Migrate Middleware
 
 ```go
 // === Gin middleware → Unicorn middleware ===
@@ -184,19 +197,19 @@ func AuthMiddleware() context.MiddlewareFunc {
 }
 ```
 
-### 2c. Testing Bridge — Response Comparison
+### 2c. Response Comparison Test
 
-Sebelum cutover, verifikasi response lama dan baru identik:
+Before cutting over, verify that old and new responses are identical:
 
 ```go
 func TestMigration_GetUser(t *testing.T) {
-    // Hit endpoint lama
+    // Hit old endpoint
     oldResp := hitOldService("/users/123")
 
-    // Hit endpoint baru (Unicorn)
+    // Hit new Unicorn endpoint
     newResp := hitNewUnicorn("/users/123")
 
-    // Bandingkan
+    // Compare
     if !reflect.DeepEqual(oldResp, newResp) {
         t.Errorf("response mismatch:\nold: %+v\nnew: %+v", oldResp, newResp)
     }
@@ -207,10 +220,10 @@ func TestMigration_GetUser(t *testing.T) {
 
 ## Phase 3: Reverse Proxy + Gradual Cutover
 
-Pasang reverse proxy (nginx, Caddy, atau Go native) yang bisa route per-endpoint.
+Use a reverse proxy (nginx, Caddy, or a Go reverse proxy) that can route per-endpoint.
 
 ```nginx
-# nginx.conf — migrasi bertahap
+# nginx.conf — incremental migration
 
 upstream old_service {
     server localhost:8080;
@@ -223,7 +236,7 @@ upstream new_service {
 server {
     listen 80;
 
-    # Endpoint yang sudah dimigrasi → unicorn
+    # Migrated endpoints → unicorn
     location /users/ {
         proxy_pass http://new_service;
     }
@@ -231,7 +244,7 @@ server {
         proxy_pass http://new_service;
     }
 
-    # Endpoint yang belum dimigrasi → service lama
+    # Not-yet-migrated endpoints → old service
     location / {
         proxy_pass http://old_service;
     }
@@ -239,7 +252,7 @@ server {
 ```
 
 ```go
-// Atau pake Unicorn reverse proxy sidecar
+// Or use a Unicorn reverse proxy sidecar
 type ReverseProxySidecar struct {
     oldBackend string // "localhost:8080"
 }
@@ -247,7 +260,7 @@ type ReverseProxySidecar struct {
 func (p *ReverseProxySidecar) Name() string { return "migration-proxy" }
 
 func (p *ReverseProxySidecar) Start(ctx context.Context) error {
-    // Proxy: /users → Unicorn, /products → old service
+    // Proxy /users → Unicorn, /products → old service
     // ...
 }
 
@@ -258,23 +271,23 @@ app.AddSidecar(ReverseProxySidecar{oldBackend: "localhost:8080"})
 
 ## Phase 4: Cutover
 
-Setelah semua handler dimigrasi:
+After all handlers are migrated:
 
-1. Update proxy: semua traffic → Unicorn port
-2. Matikan service lama
-3. Hapus code lama
-4. Ganti port Unicorn ke port utama (8080)
+1. Update proxy: all traffic → Unicorn port
+2. Shut down the old service
+3. Remove old code
+4. Change Unicorn port to the primary port (8080)
 
 ```go
-// Final: cuma Unicorn, nggak ada lagi service lama
+// Final: only Unicorn, no more old service
 func main() {
     app := unicorn.New(&unicorn.Config{
         Name:       "fully-migrated",
         EnableHTTP: true,
-        HTTP:       &httpAdapter.Config{Port: 8080}, // ← port utama
+        HTTP:       &httpAdapter.Config{Port: 8080}, // ← primary port
     })
 
-    // Semua handler dari hasil migrasi
+    // All migrated handlers
     app.RegisterHandler(GetUser).HTTP("GET", "/users/:id").Done()
     app.RegisterHandler(CreateUser).HTTP("POST", "/users").Done()
     app.RegisterHandler(ListUsers).HTTP("GET", "/users").Done()
@@ -287,28 +300,28 @@ func main() {
 
 ---
 
-## Timeline Realistis
+## Realistic Timeline
 
 ```
-Minggu 1:  Phase 0 — Assessment + setup
-Minggu 2:  Phase 1 — Bridge infra + co-exist
-Minggu 3-4: Phase 2 — Migrasi handler (5-10 handler/minggu)
-Minggu 5:  Phase 3 — Reverse proxy + verifikasi
-Minggu 6:  Phase 4 — Cutover + cleanup
+Week 1:  Phase 0 — Assessment + setup
+Week 2:  Phase 1 — Bridge infra + co-exist
+Week 3-4: Phase 2 — Migrate handlers (5-10 handlers/week)
+Week 5:  Phase 3 — Reverse proxy + verification
+Week 6:  Phase 4 — Cutover + cleanup
 ```
 
 ---
 
 ## Anti-Patterns
 
-| ❌ Jangan | ✅ Lakukan |
-|-----------|-----------|
-| Migrasi semua handler sekaligus | Satu endpoint per PR |
-| Ubah infrastructure + handler barengan | Infrastructure bridge dulu, handler belakangan |
-| Buka 2 port di production tanpa proxy | Proxy dari hari pertama |
-| Test cuma di lokal | Staging environment dengan traffic mirror |
-| Cutover di akhir pekan tanpa rollback plan | Selalu siapkan `switch --back` |
+| ❌ Don't | ✅ Do |
+|----------|-------|
+| Migrate all handlers at once | One endpoint per PR |
+| Change infrastructure + handlers together | Bridge infra first, handlers later |
+| Run 2 ports in production without a proxy | Proxy from day one |
+| Test only locally | Staging environment with traffic mirroring |
+| Cutover on a Friday without a rollback plan | Always have a `switch --back` ready |
 
 ---
 
-Kuncinya ada di **Phase 1: Co-Exist**. Selama Unicorn dan service lama bisa jalan bareng dan sharing infra yang sama, migrasi bisa dilakukan handler-by-handler tanpa tekanan. Tidak perlu "big bang migration."
+The key is **Phase 1: Co-Exist**. As long as Unicorn and the old service can run side by side sharing the same infrastructure, migration can proceed handler by handler, under no pressure. No "big bang migration" required.
