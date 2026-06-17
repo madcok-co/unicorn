@@ -61,13 +61,13 @@ This directory contains official driver implementations and enterprise features 
 
 | Driver | Package | Underlying Library |
 |--------|---------|-------------------|
-| OpenTelemetry | `contrib/tracer/otel` | Coming soon |
+| OpenTelemetry | `contrib/tracer/otel` | Coming soon — Track progress at [issue #TBD](https://github.com/madcok-co/unicorn/issues)
 
 ### Metrics
 
 | Driver | Package | Underlying Library |
 |--------|---------|-------------------|
-| Prometheus | `contrib/metrics/prometheus` | Coming soon |
+| Prometheus | `contrib/metrics/prometheus` | Coming soon — Track progress at [issue #TBD](https://github.com/madcok-co/unicorn/issues)
 
 ## Quick Start - Enterprise Features
 
@@ -390,18 +390,15 @@ func handler(ctx *unicorn.Context) error {
 }
 
 // Subscribe to messages (in app setup)
-app.Handle(&unicorn.Handler{
-    Name: "ProcessOrder",
-    Triggers: []unicorn.Trigger{
-        {Type: unicorn.TriggerMessage, Topic: "orders.created"},
-    },
-    Handler: func(ctx *unicorn.Context) error {
-        // Process the message
-        var order Order
-        json.Unmarshal(ctx.Request().Body, &order)
-        return processOrder(order)
-    },
-})
+func ProcessOrder(ctx *unicorn.Context, req json.RawMessage) error {
+    var order Order
+    json.Unmarshal(req, &order)
+    return processOrder(order)
+}
+
+app.RegisterHandler(ProcessOrder).
+    Message("orders.created").
+    Done()
 ```
 
 ### Validator (Playground)
@@ -432,17 +429,15 @@ type CreateUserRequest struct {
     Age   int    `json:"age" validate:"required,gte=18"`
 }
 
-func handler(ctx *unicorn.Context) error {
-    var req CreateUserRequest
-    ctx.Bind(&req)
+func handler(ctx *unicorn.Context, req CreateUserRequest) (*User, error) {
     
     if err := ctx.Validate(req); err != nil {
-        return ctx.JSON(400, map[string]any{
+        return nil, ctx.JSON(400, map[string]any{
             "errors": err.(contracts.ValidationErrors).ToMap(),
         })
     }
     
-    return ctx.JSON(201, user)
+    return &User{Name: req.Name, Email: req.Email}, nil
 }
 ```
 

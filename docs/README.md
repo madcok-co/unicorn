@@ -52,13 +52,11 @@ type User struct {
     Email string `json:"email"`
 }
 
-func CreateUser(ctx *unicorn.Context) error {
-    var req CreateUserRequest
-    ctx.Bind(&req)
+func CreateUser(ctx *unicorn.Context, req CreateUserRequest) (*User, error) {
     
     // Validate
     if err := ctx.Validate(req); err != nil {
-        return ctx.Error(400, err.Error())
+        return nil, ctx.Error(400, err.Error())
     }
     
     // Pure business logic - infrastructure accessed via context
@@ -67,7 +65,7 @@ func CreateUser(ctx *unicorn.Context) error {
     ctx.Cache().Set(ctx.Context(), "user:"+user.ID, user, time.Hour)
     ctx.Logger().Info("user created", "id", user.ID)
     
-    return ctx.JSON(201, user)
+    return user, nil
 }
 
 func main() {

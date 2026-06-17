@@ -52,20 +52,17 @@ r.Run(":8080")
 
 ```go
 // Unicorn - Same handler, multiple triggers
-app.Handle(&unicorn.Handler{
-    Name: "CreateUser",
-    Triggers: []unicorn.Trigger{
-        {Type: unicorn.TriggerHTTP, Method: "POST", Path: "/users"},
-        {Type: unicorn.TriggerMessage, Queue: "user.create"},
-        {Type: unicorn.TriggerGRPC, Method: "CreateUser"},
-    },
-    Handler: func(ctx *unicorn.Context) error {
-        var user User
-        ctx.Bind(&user)
-        ctx.DB().Create(&user) // DB injected automatically
-        return ctx.JSON(200, user)
-    },
-})
+func CreateUser(ctx *unicorn.Context, req CreateUserRequest) (*User, error) {
+    user := &User{Name: req.Name, Email: req.Email}
+    ctx.DB().Create(ctx.Context(), user) // DB injected automatically
+    return user, nil
+}
+
+app.RegisterHandler(CreateUser).
+    Named("create-user").
+    HTTP("POST", "/users").
+    Message("user.create").
+    Done()
 ```
 
 **When to use Gin/Echo/Fiber:**
@@ -123,18 +120,15 @@ func decodeCreateUserRequest(_ context.Context, r *http.Request) (interface{}, e
 
 ```go
 // Unicorn - Same functionality, less code
-app.Handle(&unicorn.Handler{
-    Name: "CreateUser",
-    Triggers: []unicorn.Trigger{
-        {Type: unicorn.TriggerHTTP, Method: "POST", Path: "/users"},
-    },
-    Handler: func(ctx *unicorn.Context) error {
-        var user User
-        ctx.Bind(&user)
-        ctx.DB().Create(&user)
-        return ctx.JSON(200, user)
-    },
-})
+func CreateUser(ctx *unicorn.Context, req CreateUserRequest) (*User, error) {
+    user := &User{Name: req.Name, Email: req.Email}
+    ctx.DB().Create(ctx.Context(), user)
+    return user, nil
+}
+
+app.RegisterHandler(CreateUser).
+    HTTP("POST", "/users").
+    Done()
 ```
 
 **When to use Go-Kit:**
@@ -168,15 +162,15 @@ http.ListenAndServe(":8080", r)
 
 ```go
 // Unicorn - More batteries included
-app.Handle(&unicorn.Handler{
-    Triggers: []unicorn.Trigger{{Type: unicorn.TriggerHTTP, Method: "POST", Path: "/users"}},
-    Handler: func(ctx *unicorn.Context) error {
-        var user User
-        ctx.Bind(&user)
-        ctx.DB().Create(&user) // DB injected
-        return ctx.JSON(200, user)
-    },
-})
+func CreateUser(ctx *unicorn.Context, req CreateUserRequest) (*User, error) {
+    user := &User{Name: req.Name, Email: req.Email}
+    ctx.DB().Create(ctx.Context(), user) // DB injected
+    return user, nil
+}
+
+app.RegisterHandler(CreateUser).
+    HTTP("POST", "/users").
+    Done()
 ```
 
 **When to use Chi:**
@@ -215,15 +209,15 @@ beego.Router("/users", &UserController{})
 
 ```go
 // Unicorn - Functional style
-app.Handle(&unicorn.Handler{
-    Triggers: []unicorn.Trigger{{Type: unicorn.TriggerHTTP, Method: "POST", Path: "/users"}},
-    Handler: func(ctx *unicorn.Context) error {
-        var user User
-        ctx.Bind(&user)
-        ctx.DB().Create(&user)
-        return ctx.JSON(200, user)
-    },
-})
+func CreateUser(ctx *unicorn.Context, req CreateUserRequest) (*User, error) {
+    user := &User{Name: req.Name, Email: req.Email}
+    ctx.DB().Create(ctx.Context(), user)
+    return user, nil
+}
+
+app.RegisterHandler(CreateUser).
+    HTTP("POST", "/users").
+    Done()
 ```
 
 **When to use Beego:**
@@ -264,15 +258,15 @@ func (c *UserController) Post(user User) User {
 
 ```go
 // Unicorn - Consistent pattern
-app.Handle(&unicorn.Handler{
-    Triggers: []unicorn.Trigger{{Type: unicorn.TriggerHTTP, Method: "POST", Path: "/users"}},
-    Handler: func(ctx *unicorn.Context) error {
-        var user User
-        ctx.Bind(&user)
-        ctx.DB().Create(&user)
-        return ctx.JSON(200, user)
-    },
-})
+func CreateUser(ctx *unicorn.Context, req CreateUserRequest) (*User, error) {
+    user := &User{Name: req.Name, Email: req.Email}
+    ctx.DB().Create(ctx.Context(), user)
+    return user, nil
+}
+
+app.RegisterHandler(CreateUser).
+    HTTP("POST", "/users").
+    Done()
 ```
 
 **When to use Iris:**
@@ -310,15 +304,15 @@ app.POST("/users", UsersCreate)
 
 ```go
 // Unicorn - Explicit configuration
-app.Handle(&unicorn.Handler{
-    Triggers: []unicorn.Trigger{{Type: unicorn.TriggerHTTP, Method: "POST", Path: "/users"}},
-    Handler: func(ctx *unicorn.Context) error {
-        var user User
-        ctx.Bind(&user)
-        ctx.DB().Create(&user)
-        return ctx.JSON(201, user)
-    },
-})
+func CreateUser(ctx *unicorn.Context, req CreateUserRequest) (*User, error) {
+    user := &User{Name: req.Name, Email: req.Email}
+    ctx.DB().Create(ctx.Context(), user)
+    return user, nil
+}
+
+app.RegisterHandler(CreateUser).
+    HTTP("POST", "/users").
+    Done()
 ```
 
 **When to use Buffalo:**
@@ -357,19 +351,16 @@ func (s *UserService) CreateUser(ctx context.Context, req *pb.CreateUserRequest)
 
 ```go
 // Unicorn - Code-first approach
-app.Handle(&unicorn.Handler{
-    Name: "CreateUser",
-    Triggers: []unicorn.Trigger{
-        {Type: unicorn.TriggerHTTP, Method: "POST", Path: "/users"},
-        {Type: unicorn.TriggerGRPC, Method: "CreateUser"},
-    },
-    Handler: func(ctx *unicorn.Context) error {
-        var user User
-        ctx.Bind(&user)
-        ctx.DB().Create(&user)
-        return ctx.JSON(200, user)
-    },
-})
+func CreateUser(ctx *unicorn.Context, req CreateUserRequest) (*User, error) {
+    user := &User{Name: req.Name, Email: req.Email}
+    ctx.DB().Create(ctx.Context(), user)
+    return user, nil
+}
+
+app.RegisterHandler(CreateUser).
+    HTTP("POST", "/users").
+    GRPC("UserService", "CreateUser").
+    Done()
 ```
 
 **When to use Kratos:**
@@ -391,16 +382,13 @@ app.Handle(&unicorn.Handler{
 One business logic, multiple entry points:
 
 ```go
-app.Handle(&unicorn.Handler{
-    Name: "ProcessPayment",
-    Triggers: []unicorn.Trigger{
-        {Type: unicorn.TriggerHTTP, Method: "POST", Path: "/payments"},
-        {Type: unicorn.TriggerMessage, Queue: "payment.process"},
-        {Type: unicorn.TriggerGRPC, Method: "ProcessPayment"},
-        {Type: unicorn.TriggerCron, Schedule: "0 0 * * *"}, // Daily reconciliation
-    },
-    Handler: processPaymentHandler,
-})
+app.RegisterHandler(ProcessPayment).
+    Named("process-payment").
+    HTTP("POST", "/payments").
+    Message("payment.process").
+    GRPC("PaymentService", "ProcessPayment").
+    Cron("0 0 * * *"). // Daily reconciliation
+    Done()
 ```
 
 ### 2. Generic Adapter Pattern
@@ -523,14 +511,12 @@ r.GET("/users/:id", getUser)
 
 // After (Unicorn)
 app := unicorn.New(&unicorn.Config{Name: "my-service"})
-app.Handle(&unicorn.Handler{
-    Triggers: []unicorn.Trigger{{Type: unicorn.TriggerHTTP, Method: "POST", Path: "/users"}},
-    Handler: createUser,
-})
-app.Handle(&unicorn.Handler{
-    Triggers: []unicorn.Trigger{{Type: unicorn.TriggerHTTP, Method: "GET", Path: "/users/:id"}},
-    Handler: getUser,
-})
+app.RegisterHandler(createUser).
+    HTTP("POST", "/users").
+    Done()
+app.RegisterHandler(getUser).
+    HTTP("GET", "/users/:id").
+    Done()
 ```
 
 ### From Echo to Unicorn
@@ -542,13 +528,9 @@ e.POST("/users", createUser)
 
 // After (Unicorn)
 app := unicorn.New(&unicorn.Config{Name: "my-service"})
-app.Handle(&unicorn.Handler{
-    Triggers: []unicorn.Trigger{{Type: unicorn.TriggerHTTP, Method: "POST", Path: "/users"}},
-    Handler: func(ctx *unicorn.Context) error {
-        // Similar context API
-        return ctx.JSON(200, user)
-    },
-})
+app.RegisterHandler(createUser).
+    HTTP("POST", "/users").
+    Done()
 ```
 
 ## TL;DR - When to Use What?

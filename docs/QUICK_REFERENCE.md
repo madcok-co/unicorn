@@ -114,5 +114,5 @@ curl localhost:6060/debug/pprof/heap > mem.prof
 
 - [Full Performance Guide](./PERFORMANCE.md)
 - [Ultra-Low Latency Details](./ULTRA_LOW_LATENCY.md)
-- [Architecture Overview](./ARCHITECTURE.md)
+- [Architecture Overview](./architecture.md)
 - [Examples](../core/examples/)
