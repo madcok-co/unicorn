@@ -47,6 +47,7 @@ import (
 	"github.com/madcok-co/unicorn/core/pkg/contracts"
 	"github.com/madcok-co/unicorn/core/pkg/handler"
 	"github.com/madcok-co/unicorn/core/pkg/service"
+	sidecarPkg "github.com/madcok-co/unicorn/core/pkg/sidecar"
 
 	// Trigger adapters
 	brokerAdapter "github.com/madcok-co/unicorn/core/pkg/adapters/broker"
@@ -301,6 +302,20 @@ var (
 	NewConsoleTracer      = tracerAdapter.NewConsoleDriver
 )
 
+// Re-export sidecar trigger types for sidecar-mode deployments
+type (
+	// Trigger sidecars
+	HTTPSidecar   = sidecarPkg.HTTPSidecar
+	BrokerSidecar = sidecarPkg.BrokerSidecar
+	CronSidecar   = sidecarPkg.CronSidecar
+)
+
+// Sidecar constructors
+var (
+	NewHTTPSidecar   = sidecarPkg.NewHTTPSidecar
+	NewBrokerSidecar = sidecarPkg.NewBrokerSidecar
+	NewCronSidecar   = sidecarPkg.NewCronSidecar
+)
 // Logger level constants
 const (
 	LogLevelDebug = loggerAdapter.LevelDebug
