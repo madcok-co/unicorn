@@ -22,12 +22,15 @@ Unicorn is a batteries-included Go framework where developers only need to focus
 9. [Resilience Patterns](./resilience.md) - Circuit breaker, retry, bulkhead
 10. [Sidecar Pattern](./sidecar.md) - Cross-cutting sidecars + trigger-as-sidecar deployment
 
+### Migration
+11. [Migration Guide](./migration-guide.md) - Migrate existing service to Unicorn incrementally
+
 ### Reference
-11. [API Reference](./api-reference.md) - Complete API documentation
-12. [Benchmarks](./benchmarks.md) - Performance benchmarks
-13. [Framework Comparison](./comparison.md) - vs Gin, Echo, Fiber, etc.
-14. [Best Practices](./best-practices.md) - Production recommendations
-15. [Examples](./examples.md) - Complete example applications
+12. [API Reference](./api-reference.md) - Complete API documentation
+13. [Benchmarks](./benchmarks.md) - Performance benchmarks
+14. [Framework Comparison](./comparison.md) - vs Gin, Echo, Fiber, etc.
+15. [Best Practices](./best-practices.md) - Production recommendations
+16. [Examples](./examples.md) - Complete example applications
 
 ## Quick Start
 
