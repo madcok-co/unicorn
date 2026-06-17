@@ -62,6 +62,23 @@ Full gRPC server integration:
 ### 🚀 Multi-Service (`multiservice/`)
 Multiple service orchestration example
 
+### 🧩 Sidecar Mode (`sidecar-mode/`)
+Hybrid trigger + cross-cutting sidecar deployment:
+- ✅ Three deployment modes: inline, full sidecar, hybrid
+- ✅ HTTP, Broker, Cron triggers as isolated sidecars
+- ✅ Management server (health, metrics, pprof)
+- ✅ Custom protocol consumer template
+- ✅ Same handler registry, any deployment mode
+
+**Quick start:**
+```bash
+cd sidecar-mode
+# Edit mode in main.go: "inline" | "sidecar" | "hybrid"
+go run main.go
+```
+
+[📖 View Documentation](./sidecar-mode/README.md)
+
 ---
 
 ## 🎓 Learning Path
