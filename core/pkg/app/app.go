@@ -415,6 +415,56 @@ func (a *App) AddSidecar(s contracts.Sidecar) *App {
 	return a
 }
 
+// startSidecar starts a sidecar in a goroutine and monitors whether it respects
+// context cancellation. If the context is cancelled but Start() does not return
+// within 5 seconds, a warning is logged. This helps detect buggy sidecar
+// implementations that ignore ctx.Done().
+func (a *App) startSidecar(s contracts.Sidecar) {
+	a.sidecarWg.Add(1)
+	go func() {
+		defer a.sidecarWg.Done()
+
+		// done is closed when Start() returns, allowing the watchdog
+		// goroutine below to distinguish "returned cleanly" from "stuck".
+		done := make(chan struct{})
+		defer close(done)
+
+		// Watchdog goroutine: detects if Start() ignores ctx cancellation.
+		go func() {
+			select {
+			case <-a.ctx.Done():
+				// Context was cancelled, wait for Start() to return.
+				select {
+				case <-done:
+					// Start() returned — good.
+				case <-time.After(5 * time.Second):
+					// Start() is still blocking despite context cancellation.
+					// This indicates a buggy sidecar implementation.
+					a.logWarn("sidecar [%s] ignored context cancellation — Start() did not return within 5s", s.Name())
+				}
+			case <-done:
+				// Start() returned before ctx was cancelled (e.g. startup error).
+			}
+		}()
+
+		if err := s.Start(a.ctx); err != nil {
+			a.logWarn("sidecar [%s] exited: %v", s.Name(), err)
+		}
+	}()
+
+	fmt.Printf("%s✓%s %sSidecar:%s %s%s%s\n",
+		colorGreen, colorReset, colorBold, colorReset, colorCyan, s.Name(), colorReset)
+}
+
+// logWarn prints a formatted warning message.
+func (a *App) logWarn(format string, args ...any) {
+	msg := fmt.Sprintf(format, args...)
+	fmt.Printf("%s⚠ %s%s\n", colorYellow, msg, colorReset)
+	if a.adapters.Logger != nil {
+		a.adapters.Logger.Warn(msg)
+	}
+}
+
 // OnStart adds a startup hook
 func (a *App) OnStart(fn func() error) *App {
 	a.onStart = append(a.onStart, fn)
@@ -478,18 +528,7 @@ func (a *App) RunSidecars() error {
 	// Start sidecars
 	for _, s := range a.sidecars {
 		s := s
-		a.sidecarWg.Add(1)
-		go func() {
-			defer a.sidecarWg.Done()
-			if err := s.Start(a.ctx); err != nil {
-				fmt.Printf("%s⚠ Sidecar [%s] exited:%s %v\n", colorYellow, s.Name(), colorReset, err)
-				if a.adapters.Logger != nil {
-					a.adapters.Logger.Error("sidecar exited", "sidecar", s.Name(), "error", err)
-				}
-			}
-		}()
-		fmt.Printf("%s✓%s %sSidecar:%s %s%s%s\n",
-			colorGreen, colorReset, colorBold, colorReset, colorCyan, s.Name(), colorReset)
+		a.startSidecar(s)
 	}
 
 	fmt.Printf("%s════════════════════════════════════════%s\n", colorDim, colorReset)
@@ -665,18 +704,7 @@ func (a *App) runLegacyMode() error {
 	// Start sidecars — failures are non-fatal: logged, app keeps running
 	for _, s := range a.sidecars {
 		s := s
-		a.sidecarWg.Add(1)
-		go func() {
-			defer a.sidecarWg.Done()
-			if err := s.Start(a.ctx); err != nil {
-				fmt.Printf("%s⚠ Sidecar [%s] exited:%s %v\n", colorYellow, s.Name(), colorReset, err)
-				if a.adapters.Logger != nil {
-					a.adapters.Logger.Error("sidecar exited", "sidecar", s.Name(), "error", err)
-				}
-			}
-		}()
-		fmt.Printf("%s✓%s %sSidecar:%s %s%s%s\n",
-			colorGreen, colorReset, colorBold, colorReset, colorCyan, s.Name(), colorReset)
+		a.startSidecar(s)
 	}
 
 	fmt.Printf("%s════════════════════════════════════════%s\n", colorDim, colorReset)
