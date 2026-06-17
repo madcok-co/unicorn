@@ -975,22 +975,21 @@ func (p *PaymentGateway) Charge(ctx context.Context, amount float64) error {
 }
 
 // Handler with resilience
-func ProcessPayment(ctx *unicorn.Context) error {
-    var req struct {
-        Amount float64 `json:"amount"`
-    }
-    ctx.Bind(&req)
-    
+type PaymentRequest struct {
+    Amount float64 `json:"amount"`
+}
+
+func ProcessPayment(ctx *unicorn.Context, req PaymentRequest) (*map[string]string, error) {
     gateway := ctx.Get("payment_gateway").(*PaymentGateway)
     
     if err := gateway.Charge(ctx.Context(), req.Amount); err != nil {
         if err == circuitbreaker.ErrCircuitOpen {
-            return ctx.Error(503, "Payment service temporarily unavailable")
+            return nil, ctx.Error(503, "Payment service temporarily unavailable")
         }
-        return ctx.Error(500, "Payment failed")
+        return nil, ctx.Error(500, "Payment failed")
     }
     
-    return ctx.JSON(200, map[string]string{"status": "success"})
+    return &map[string]string{"status": "success"}, nil
 }
 
 // Health check with dependency checks

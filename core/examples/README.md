@@ -49,12 +49,13 @@ go run main.go
 [📖 View Documentation](./kafka/README.md)
 
 ### 🔌 gRPC (`grpc/`)
-**Status:** Framework support coming soon
+**Status:** Available via `contrib/grpc` adapter
 
-Current options:
-- Manual integration with standard gRPC
-- Use grpc-gateway for HTTP proxy
-- Share Unicorn services with gRPC handlers
+Full gRPC server integration:
+- Unary and streaming RPC calls
+- Built-in interceptors (logging, recovery, timeout, auth, metrics, rate limit)
+- TLS support with modern cipher suites
+- Service reflection for debugging
 
 [📖 View Documentation](./grpc/README.md)
 
@@ -255,8 +256,8 @@ go build
 
 - [Framework Documentation](../README.md)
 - [Complete Feature List](./complete-features/FEATURES.md)
-- [Architecture Guide](../docs/ARCHITECTURE.md)
-- [API Reference](../docs/API.md)
+- [Architecture Guide](../docs/architecture.md)
+- [API Reference](../docs/api-reference.md)
 
 ---
 
