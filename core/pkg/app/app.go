@@ -434,6 +434,81 @@ func (a *App) Start() error {
 	return a.RunServices()
 }
 
+// RunSidecars starts only registered sidecars without launching built-in adapters.
+// Use this for pure-sidecar deployments where triggers (HTTP, broker, cron) are
+// also registered as sidecars.
+//
+// Example:
+//
+//	app := unicorn.New(&unicorn.Config{Name: "telephony"})
+//	app.RegisterHandler(OnCallStarted).Message("freeswitch.events").Done()
+//
+//	// HTTP trigger as sidecar
+//	httpSidecar := sidecar.NewHTTPSidecar(app.Registry(), &http.Config{Port: 8080})
+//	httpSidecar.Adapter.SetAppAdapters(app.Adapters())
+//	app.AddSidecar(httpSidecar)
+//
+//	// FreeSWITCH consumer as sidecar
+//	fs := freeswitch.NewSidecar(freeswitch.Config{
+//	    Host:     "10.0.0.5",
+//	    Password: os.Getenv("FS_PASSWORD"),
+//	}, app.Broker())
+//	app.AddSidecar(fs)
+//
+//	// Management sidecar
+//	app.AddSidecar(management.NewServer(&management.Config{Port: 9090}))
+//
+//	app.RunSidecars()
+func (a *App) RunSidecars() error {
+	// Run startup hooks
+	for _, fn := range a.onStart {
+		if err := fn(); err != nil {
+			return fmt.Errorf("startup hook failed: %w", err)
+		}
+	}
+
+	// Print startup banner
+	fmt.Printf("%s%s🦄 %s v%s (sidecar mode)%s\n", colorBold, colorMagenta, a.name, a.version, colorReset)
+	fmt.Printf("%s════════════════════════════════════════%s\n", colorDim, colorReset)
+
+	// Setup signal handling
+	sigCh := make(chan os.Signal, 1)
+	signal.Notify(sigCh, syscall.SIGINT, syscall.SIGTERM)
+
+	// Start sidecars
+	for _, s := range a.sidecars {
+		s := s
+		a.sidecarWg.Add(1)
+		go func() {
+			defer a.sidecarWg.Done()
+			if err := s.Start(a.ctx); err != nil {
+				fmt.Printf("%s⚠ Sidecar [%s] exited:%s %v\n", colorYellow, s.Name(), colorReset, err)
+				if a.adapters.Logger != nil {
+					a.adapters.Logger.Error("sidecar exited", "sidecar", s.Name(), "error", err)
+				}
+			}
+		}()
+		fmt.Printf("%s✓%s %sSidecar:%s %s%s%s\n",
+			colorGreen, colorReset, colorBold, colorReset, colorCyan, s.Name(), colorReset)
+	}
+
+	fmt.Printf("%s════════════════════════════════════════%s\n", colorDim, colorReset)
+	fmt.Printf("%s✓ Sidecars ready!%s Press %sCtrl+C%s to stop\n",
+		colorGreen+colorBold, colorReset,
+		colorYellow, colorReset)
+	fmt.Println()
+
+	// Wait for shutdown signal
+	sig := <-sigCh
+	fmt.Printf("\n%s⚠ Received shutdown signal:%s %s\n",
+		colorYellow, colorReset, sig.String())
+	if a.adapters.Logger != nil {
+		a.adapters.Logger.Info("Received shutdown signal", "signal", sig.String())
+	}
+
+	return a.Shutdown()
+}
+
 // RunServices runs specific services (or all if none specified)
 func (a *App) RunServices(serviceNames ...string) error {
 	// Run startup hooks
