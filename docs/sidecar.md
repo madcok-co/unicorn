@@ -97,6 +97,9 @@ app.RunSidecars() // only sidecars — no built-in adapters
 - Custom external service consumers (FreeSWITCH ESL, WebSocket, custom TCP)
 - Runtime add/remove triggers without full restart
 
+**📖 Live example:** See [`core/examples/sidecar-mode`](../core/examples/sidecar-mode/README.md)
+for a complete runnable example with all three deployment modes.
+
 ## The Sidecar Interface
 
 ```go
