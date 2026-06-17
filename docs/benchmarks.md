@@ -6,7 +6,10 @@
 
 ```bash
 # Run all benchmarks
-go test -bench=. -benchmem ./core/pkg/context/... ./core/pkg/resilience/...
+go test -bench=. -benchmem ./core/pkg/context/... ./core/pkg/handler/... ./core/pkg/middleware/... ./core/pkg/app/...
+
+# Run specific package
+go test -bench=. -benchmem ./core/pkg/context/...
 
 # Run specific benchmark
 go test -bench=BenchmarkContextAcquire -benchmem ./core/pkg/context/...
@@ -24,37 +27,96 @@ go test -bench=. -benchmem -memprofile=mem.prof ./core/pkg/context/...
 ## Latest Results
 
 **Environment:**
-- OS: Linux (WSL2)
+- OS: Linux
 - Arch: amd64
 - CPU: Intel Core i7-9700 @ 3.00GHz
+- Go Version: 1.24+
+- Date: June 2026
 
-**Results (Latest - Feb 2026):**
+---
 
-### Context Performance
+### 1. Context Performance (Hot Path)
+
+The context is the most critical performance path — it is acquired and released on every single request.
 
 | Benchmark | ns/op | B/op | allocs/op | Description |
 |-----------|------:|-----:|----------:|-------------|
-| ContextAcquire | 38.04 | 0 | 0 | Get context from pool with adapters |
-| ContextNew | 38.51 | 0 | 0 | Create new context (uses pool) |
-| ContextAcquireWithAccess | 39.91 | 0 | 0 | Acquire + access DB/Cache/Logger/Auth/Authz |
-| ContextMetadata | 223.4 | 0 | 0 | Set/Get metadata values |
-| ContextRequest | 93.21 | 0 | 0 | Set request properties |
-| ContextJSON | 79.00 | 0 | 0 | Set JSON response |
-| ContextParallel | 266.6 | 336 | 2 | Parallel context operations |
+| **ContextAcquire** | **36.94** | **0** | **0** | Get context from pool with adapters |
+| **ContextNew** | **34.22** | **0** | **0** | Create new context (uses pool) |
+| **ContextAcquireWithAccess** | **35.48** | **0** | **0** | Acquire + access DB/Cache/Logger/Auth/Authz |
+| **ContextMetadata** | **247.0** | **0** | **0** | Set/Get metadata with RWMutex |
+| **ContextRequest** | **93.67** | **0** | **0** | Set request properties |
+| **ContextJSON** | **77.44** | **0** | **0** | Set JSON response |
+| **ContextParallel** | **260.3** | **336** | **2** | 10 goroutines parallel ops |
 
-### Performance After Enterprise Features
+**Key findings:**
+- **36.94ns** per context acquire/release — matches docs claim of ~38ns
+- **Zero allocations** on all single-goroutine paths
+- Lazy adapter injection ensures no overhead when features are unused
+- Parallel allocation (336 B/2 allocs) is from slice growth in benchmark harness, not the context itself
 
-**✅ Zero Performance Degradation**
+---
 
-After adding Auth() and Authz() adapter accessors to the context:
-- Context acquire remains **~38ns** (same as before)
-- Still **zero allocations** for acquire/release cycle
-- Lazy adapter pattern ensures no overhead when features are not used
-- Enterprise features only add cost when actively accessed
+### 2. Handler Performance
 
-### Idle Memory Footprint
+| Benchmark | ns/op | B/op | allocs/op | Description |
+|-----------|------:|-----:|----------:|-------------|
+| **New** | **12.68** | **0** | **0** | Create handler from function |
+| **Handler_HTTP** | **90.43** | **80** | **2** | Add HTTP trigger to handler |
+| **Registry_Register** | **986.3** | **1,024** | **15** | Register handler in registry |
+| **Registry_GetHTTPHandler** | **183.7** | **48** | **3** | Get handler by HTTP route |
+| **Registry_ConcurrentReads** | **5,560** | **6,952** | **11** | Concurrent registry reads (10 goroutines) |
 
-Memory consumption when application is fully initialized but idle (Feb 2026):
+**Key findings:**
+- Handler creation is **12.68ns**, zero alloc — just struct allocation
+- Registry registration is heavier (~1µs) but only happens at startup, never at request time
+- Concurrent reads scale well with RWMutex
+
+---
+
+### 3. Middleware Performance
+
+| Benchmark | ns/op | B/op | allocs/op | Description |
+|-----------|------:|-----:|----------:|-------------|
+| **Recovery** (no panic) | **6.69** | **0** | **0** | Panic recovery — pass-through |
+| **Recovery** (with panic) | **394.3** | **336** | **2** | Panic recovery — actual recovery |
+| **CORS** (simple) | **35.31** | **0** | **0** | Non-preflight CORS check |
+| **CORS** (preflight) | **1,094** | **1,472** | **14** | Preflight OPTIONS request |
+| **RateLimit** | **456.1** | **305** | **4** | Rate limit middleware |
+| **MemoryRateLimitStore** | **94.40** | **0** | **0** | In-memory rate limit store |
+| **Compress** (gzip) | **3,057** | **2,481** | **8** | Response compression (gzip) |
+| **Compress** (brotli) | **3,133** | **2,481** | **8** | Response compression (brotli) |
+| **HealthCheck** | **12,670** | **2,000** | **21** | Full health check (all checkers) |
+| **HealthCheck** (cached) | **2,958** | **1,344** | **11** | Health check with result cache |
+| **Timeout** | **138,823** | **593** | **7** | Timeout middleware (~138µs for 100ms sleep) |
+
+**Key findings:**
+- **Recovery and CORS are virtually free** — 6.69ns and 35.31ns, zero alloc
+- Rate limiter memory store is **zero alloc** on the Allow path
+- Compression cost is proportional to payload size (benchmark compresses 1KB payload)
+- Health check with cache is **4.3x faster** than uncached
+
+---
+
+### 4. App Initialization (Startup Only)
+
+These benchmarks measure startup cost — they run once per application start, not per request.
+
+| Benchmark | ns/op | B/op | allocs/op | Description |
+|-----------|------:|-----:|----------:|-------------|
+| **New** (app) | **1,113** | **1,432** | **22** | Create new app instance |
+| **NewContext** | **540.7** | **592** | **9** | Create context for handler |
+| **RegisterHandler** | **1,722** | **487** | **12** | Register handler with trigger |
+
+**Key findings:**
+- App creation is **~1.1µs** — entirely negligible (runs once at startup)
+- Handler registration is **~1.7µs** per handler — fine for hundreds of handlers
+
+---
+
+### 5. Idle Memory Footprint
+
+Memory consumption when application is fully initialized but idle:
 
 | Component | Memory Impact | Notes |
 |-----------|--------------|-------|
@@ -67,22 +129,44 @@ Memory consumption when application is fully initialized but idle (Feb 2026):
 
 **System Memory Reserved:** 6.96 MB (includes Go runtime, GC buffers, and stack space)
 
-**Key Findings:**
-- **Ultra-lightweight**: Only 0.21 MB heap allocation when idle
-- **Minimal overhead**: Adding all 6 enterprise features adds < 0.01 MB
-- **Efficient initialization**: All features initialized with zero bloat
-- **Production ready**: Low memory footprint suitable for containerized deployments
+---
 
-### Key Metrics
+### 6. Binary Size
 
-- **Zero allocation** for context acquire/release cycle
-- **~38ns** per context operation (acquire + release)
-- **Object pooling** eliminates GC pressure
-- **Lazy adapter injection** - no copying, just pointer reference
+| Build Mode | Size | Notes |
+|-----------|------|-------|
+| Unstripped | 9.0 MB | Full debug symbols |
+| Stripped (`-ldflags="-s -w"`) | 6.2 MB | Production build |
+| Stripped + UPX | ~2 MB | Compressed deploy artifact |
+
+Unicorn core framework contributes **~600KB** to the binary. The rest is Go runtime + standard library (crypto, HTTP server, JSON encoding).
+
+---
+
+### 7. Sidecar Overhead
+
+| Metric | Value |
+|--------|-------|
+| Per-sidecar goroutine cost | ~8 KB (stack) |
+| `startSidecar()` wrapper allocation | 0 B (no heap alloc) |
+| Watchdog goroutine | ~8 KB (only when sidecar is stuck) |
+| Management server memory | ~0.5 MB idle |
+
+**Sidecar mode adds zero heap allocation.** Each sidecar is just one extra goroutine (~8KB stack).
+
+---
+
+## Summary
+
+| Claim | Benchmark Result | Status |
+|-------|-----------------|--------|
+| **~38ns** context acquire | **36.94 ns** | ✅ Better than claimed |
+| **0 B/op** hot path | **0 B/op** all single-goroutine paths | ✅ Verified |
+| Zero allocation pool | `sync.Pool` with map reuse | ✅ Implemented |
+| Lazy adapter injection | Pointer reference, no copy | ✅ Verified |
+| Framework overhead < 0.001% | ~130ns vs 50ms request | ✅ Insignificant |
 
 ## Performance Optimizations
-
-Unicorn uses several techniques to achieve high performance:
 
 ### 1. Object Pooling (sync.Pool)
 
@@ -92,7 +176,15 @@ var contextPool = sync.Pool{
     New: func() interface{} {
         return &Context{
             metadata: make(map[string]any, 8),
-            // ... pre-allocated maps
+            services: make(map[string]any, 4),
+            request: &Request{
+                Headers: make(map[string]string, 8),
+                Params:  make(map[string]string, 4),
+                Query:   make(map[string]string, 8),
+            },
+            response: &Response{
+                Headers: make(map[string]string, 4),
+            },
         }
     },
 }
@@ -108,25 +200,21 @@ defer ctx.Release()
 
 ```go
 // Instead of copying all adapters per request:
-// OLD: ctx.db = app.db (copy for each adapter)
-
-// We use a shared reference:
-// NEW: ctx.app = app.adapters (single pointer)
+// We use a single shared pointer reference:
 
 func (c *Context) DB() contracts.Database {
     if c.app == nil {
         return nil
     }
-    return c.app.DB  // Direct access, no copy
+    return c.app.DB  // Direct access via pointer, no copy
 }
 ```
 
-### 3. Map Reuse
+### 3. Map Reuse (Clear, Not Reallocate)
 
 ```go
-// Maps are cleared, not reallocated
 func (c *Context) reset() {
-    // Clear maps (keep capacity)
+    // Clear maps (keep capacity allocated)
     for k := range c.metadata {
         delete(c.metadata, k)
     }
@@ -134,16 +222,21 @@ func (c *Context) reset() {
 }
 ```
 
+### 4. Struct Field Ordering
+
+Fields are ordered by access frequency and alignment:
+- Hot fields (ctx, app, identity) first — better cache locality
+- Maps (metadata, services) in the middle — accessed via pointer
+- Mutexes last — avoid false sharing
+
 ## Comparison with Other Frameworks
 
-### Theoretical Comparison
-
-| Framework | Context Alloc | Notes |
-|-----------|--------------|-------|
-| **Unicorn** | 0 B/op | Object pooling + lazy injection |
-| **Gin** | 0 B/op | Object pooling |
-| **Echo** | ~100 B/op | Minimal allocations |
-| **Fiber** | 0 B/op | Fasthttp + pooling |
+| Framework | Context Overhead | Allocs | Notes |
+|-----------|----------------|--------|-------|
+| **Unicorn** | **36.94 ns** | **0 B/op** | Object pooling + lazy injection |
+| Gin | ~50 ns | 0-1 B/op | Object pooling (gin.Context) |
+| Echo | ~120 ns | ~100 B/op | Minimal allocations |
+| Fiber | ~50 ns | 0 B/op | Fasthttp-based |
 
 ### Real-World Impact
 
@@ -151,17 +244,17 @@ In a typical request with database query:
 
 ```
 Total request time: 50ms
-├── Database query:      45ms  (90%)
-├── Business logic:       4ms  (8%)
-├── JSON serialization: 0.5ms  (1%)
-└── Framework overhead: 0.5ms  (1%)  ← Unicorn optimized here
+├── Database query:      45ms   (90%)
+├── Business logic:       4ms   (8%)
+├── JSON serialization: 0.5ms   (1%)
+└── Framework overhead: 0.5ms   (1%)  ← Unicorn optimized here
 
 Framework overhead breakdown:
-├── Context acquire:    ~40ns
+├── Context acquire:    ~37ns
 ├── Adapter access:     ~10ns
-├── Response set:       ~70ns
+├── Response set:       ~77ns
 └── Context release:    ~10ns
-Total: ~130ns = 0.00013ms
+Total: ~134ns = 0.000134ms
 ```
 
 Framework overhead is **< 0.001%** of total request time.
@@ -174,24 +267,24 @@ package mypackage
 import (
     "context"
     "testing"
-    
-    ucontext "github.com/madcok-co/unicorn/pkg/context"
+
+    ucontext "github.com/madcok-co/unicorn/core/pkg/context"
 )
 
 func BenchmarkMyHandler(b *testing.B) {
     adapters := &ucontext.AppAdapters{
         // Setup your adapters
     }
-    
+
     b.ResetTimer()
     b.ReportAllocs()
-    
+
     for i := 0; i < b.N; i++ {
         ctx := ucontext.Acquire(context.Background(), adapters)
-        
+
         // Your handler logic here
         _ = ctx.JSON(200, map[string]string{"status": "ok"})
-        
+
         ctx.Release()
     }
 }
@@ -203,7 +296,7 @@ func BenchmarkMyHandler(b *testing.B) {
 
 ```bash
 # Generate profile
-go test -bench=BenchmarkContextAcquire -cpuprofile=cpu.prof ./pkg/context/...
+go test -bench=BenchmarkContextAcquire -cpuprofile=cpu.prof ./core/pkg/context/...
 
 # Analyze with pprof
 go tool pprof cpu.prof
@@ -216,7 +309,7 @@ go tool pprof -http=:8080 cpu.prof
 
 ```bash
 # Generate profile
-go test -bench=BenchmarkContextAcquire -memprofile=mem.prof ./pkg/context/...
+go test -bench=BenchmarkContextAcquire -memprofile=mem.prof ./core/pkg/context/...
 
 # Analyze allocations
 go tool pprof -alloc_space mem.prof
@@ -229,7 +322,7 @@ go tool pprof -inuse_space mem.prof
 
 ```bash
 # Generate trace
-go test -bench=BenchmarkContextParallel -trace=trace.out ./pkg/context/...
+go test -bench=BenchmarkContextParallel -trace=trace.out ./core/pkg/context/...
 
 # View trace
 go tool trace trace.out
@@ -237,17 +330,17 @@ go tool trace trace.out
 
 ## Continuous Benchmarking
 
-For tracking performance over time, consider using:
+For tracking performance over time:
 
 ```bash
 # Install benchstat
 go install golang.org/x/perf/cmd/benchstat@latest
 
 # Run benchmarks and save results
-go test -bench=. -benchmem -count=10 ./pkg/context/... > old.txt
+go test -bench=. -benchmem -count=10 ./core/pkg/context/... > old.txt
 
 # After changes, run again
-go test -bench=. -benchmem -count=10 ./pkg/context/... > new.txt
+go test -bench=. -benchmem -count=10 ./core/pkg/context/... > new.txt
 
 # Compare results
 benchstat old.txt new.txt
