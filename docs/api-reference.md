@@ -37,8 +37,12 @@ type Config struct {
 | `Service(name string)` | Get or create a service |
 | `OnStart(fn func() error)` | Add startup hook |
 | `OnStop(fn func() error)` | Add shutdown hook |
-| `Start()` | Start the application |
+| `Start()` | Start the application (all adapters + sidecars) |
 | `RunServices(names ...string)` | Run specific services |
+| `RunSidecars()` | Start only sidecars (no built-in adapters) |
+| `AddSidecar(s Sidecar)` | Add a sidecar process |
+| `Registry()` | Get the handler registry |
+| `Adapters()` | Get the app adapters reference |
 | `Shutdown()` | Graceful shutdown |
 
 ### Context
