@@ -4,7 +4,13 @@ Unicorn supports an in-process sidecar model for running auxiliary processes
 alongside your main application. Sidecars handle cross-cutting concerns in
 production service mesh environments without polluting business logic.
 
+Starting in v0.1.0, triggers (HTTP, Message Broker, Cron) can also run as
+sidecars, enabling hybrid deployment: default inline triggers, or isolated
+sidecar mode for advanced production scenarios.
+
 ## Overview
+
+### Auxiliary Sidecars (Cross-Cutting)
 
 | Sidecar | Package | Purpose |
 |---------|---------|---------|
@@ -12,6 +18,14 @@ production service mesh environments without polluting business logic.
 | **ConfigWatcher** | `contrib/sidecar/configwatcher` | Hot-reload config without restart |
 | **ServiceRegistrar** | `contrib/sidecar/discovery` | Auto register/deregister with Consul |
 | **SecretRotator** | `contrib/sidecar/secretrotator` | Rotate credentials from Vault/K8s |
+
+### Trigger Sidecars (Built-in)
+
+| Sidecar | Constructor | Purpose |
+|---------|------------|---------|
+| **HTTPSidecar** | `unicorn.NewHTTPSidecar()` | HTTP server as isolated sidecar |
+| **BrokerSidecar** | `unicorn.NewBrokerSidecar()` | Message consumer as isolated sidecar |
+| **CronSidecar** | `unicorn.NewCronSidecar()` | Job scheduler as isolated sidecar |
 
 ## How It Works
 
@@ -46,6 +60,42 @@ App.Shutdown()
 - Sidecar failures are **non-fatal** — the app logs a warning and continues
 - Sidecars stop **before** infrastructure is closed (DB, cache, broker)
 - Each `Stop()` call gets a **5-second graceful window**
+
+### Hybrid Deployments: `Start()` vs `RunSidecars()`
+
+**Default (inline triggers):**
+```go
+app := unicorn.New(&unicorn.Config{Name: "my-app"})
+app.RegisterHandler(CreateUser).HTTP("POST", "/users").Done()
+app.Start() // HTTP + Broker + Cron + Sidecars all in one
+```
+
+**Sidecar mode (triggers as sidecars):**
+```go
+app := unicorn.New(&unicorn.Config{Name: "telephony"})
+app.RegisterHandler(OnCallStarted).Message("freeswitch.events").Done()
+
+// HTTP trigger as sidecar
+httpSidecar := unicorn.NewHTTPSidecar(app.Registry(), &http.Config{Port: 8080})
+httpSidecar.Adapter.SetAppAdapters(app.Adapters())
+app.AddSidecar(httpSidecar)
+
+// Broker trigger as sidecar
+brokerSidecar := unicorn.NewBrokerSidecar(kafkaBroker, app.Registry(), nil)
+brokerSidecar.Adapter.SetAppAdapters(app.Adapters())
+app.AddSidecar(brokerSidecar)
+
+// Infrastructure sidecars
+app.AddSidecar(management.NewServer(&management.Config{Port: 9090}))
+
+app.RunSidecars() // only sidecars — no built-in adapters
+```
+
+**When to use `RunSidecars()`:**
+- Graceful degradation under load (health check survives heavy traffic)
+- Independent lifecycle (HTTP crash doesn't kill broker consumer)
+- Custom external service consumers (FreeSWITCH ESL, WebSocket, custom TCP)
+- Runtime add/remove triggers without full restart
 
 ## The Sidecar Interface
 

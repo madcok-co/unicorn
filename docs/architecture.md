@@ -280,6 +280,38 @@ app.RunServices("user-service")
 └─────────────────────────────────────────────────────────────┘
 ```
 
+## Hybrid Deployment: Triggers as Sidecars
+
+Triggers can run as sidecores alongside the main app for production isolation:
+
+```
+┌── 1 Process, No K8s ─────────────────────────────┐
+│                                                  │
+│  [Sidecar] HTTP Trigger   :8080 (isolated)       │
+│  [Sidecar] Broker Trigger        (isolated)      │
+│  [Sidecar] Cron Trigger          (isolated)      │
+│  [Sidecar] Management     :9090 (health/metrics) │
+│  [Sidecar] Custom ESL      :8021 (freeswitch)    │
+│                                                  │
+│  App core: handler registry (shared)             │
+└──────────────────────────────────────────────────┘
+```
+
+**Why?** HTTP crash doesn't kill broker. Health check survives load spike.
+Add/remove triggers at runtime. Custom protocol consumers as sidecars.
+
+```go
+// Sidecar mode
+app := unicorn.New(&unicorn.Config{Name: "telephony"})
+app.RegisterHandler(OnCallStarted).Message("freeswitch.events").Done()
+
+httpSidecar := unicorn.NewHTTPSidecar(app.Registry(), &http.Config{Port: 8080})
+httpSidecar.Adapter.SetAppAdapters(app.Adapters())
+app.AddSidecar(httpSidecar)
+
+app.RunSidecars() // no built-in adapters — everything is a sidecar
+```
+
 ## Design Principles
 
 ### 1. Separation of Concerns

@@ -18,6 +18,7 @@ A batteries-included Go framework where developers only need to focus on busines
 - **Database Tools** - Migrations, transactions with savepoints, rollback support
 - **Observability** - Metrics, tracing, structured logging, health checks
 - **Multi-Service Mode** - Run multiple services independently or together
+- **Sidecar Pattern** - Auxiliary processes + triggers as sidecars for hybrid deployment
 - **High Performance** - Zero-allocation context pooling (~38ns/op)
 
 ### 🚀 Enterprise Features

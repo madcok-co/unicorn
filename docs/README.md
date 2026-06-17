@@ -20,7 +20,7 @@ Unicorn is a batteries-included Go framework where developers only need to focus
 ### Production Features
 8. [Middleware](./middleware.md) - Production-ready middleware
 9. [Resilience Patterns](./resilience.md) - Circuit breaker, retry, bulkhead
-10. [Sidecar Pattern](./sidecar.md) - Health probes, metrics, config watch, service discovery, secret rotation
+10. [Sidecar Pattern](./sidecar.md) - Cross-cutting sidecars + trigger-as-sidecar deployment
 
 ### Reference
 11. [API Reference](./api-reference.md) - Complete API documentation
