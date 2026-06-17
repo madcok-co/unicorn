@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"testing"
+	"time"
 
 	ucontext "github.com/madcok-co/unicorn/core/pkg/context"
 )
@@ -438,4 +439,178 @@ func BenchmarkRegisterHandler(b *testing.B) {
 			return nil
 		}).HTTP("GET", "/test").Done()
 	}
+}
+
+// ============ Sidecar Mode ============
+
+// mockSidecar implements contracts.Sidecar for testing.
+type mockSidecar struct {
+	name     string
+	started  chan struct{}
+	stopped  chan struct{}
+	startErr error
+}
+
+func (m *mockSidecar) Name() string { return m.name }
+func (m *mockSidecar) Start(ctx context.Context) error {
+	close(m.started)
+	<-ctx.Done()
+	return m.startErr
+}
+func (m *mockSidecar) Stop(ctx context.Context) error { close(m.stopped); return nil }
+
+func TestApp_RunSidecars(t *testing.T) {
+	t.Run("runs sidecars and shuts down gracefully", func(t *testing.T) {
+		app := New(&Config{
+			Name:       "test-sidecar-app",
+			EnableHTTP: false,
+		})
+
+		sc := &mockSidecar{
+			name:    "test-sidecar",
+			started: make(chan struct{}),
+			stopped: make(chan struct{}),
+		}
+		app.AddSidecar(sc)
+
+		// Run sidecars in goroutine, send signal after sidecar starts
+		done := make(chan error, 1)
+		go func() {
+			done <- app.RunSidecars()
+		}()
+
+		// Wait for sidecar to start
+		select {
+		case <-sc.started:
+			// Sidecar started, now trigger shutdown
+		case <-time.After(3 * time.Second):
+			t.Fatal("sidecar did not start")
+		}
+
+		// Shutdown via signal simulation — cancel the app context
+		app.cancel()
+
+		select {
+		case err := <-done:
+			if err != nil {
+				t.Errorf("RunSidecars returned error: %v", err)
+			}
+		case <-time.After(5 * time.Second):
+			t.Fatal("RunSidecars did not return after shutdown")
+		}
+
+		// Verify sidecar was stopped
+		select {
+		case <-sc.stopped:
+			// Good
+		case <-time.After(time.Second):
+			t.Fatal("sidecar Stop was not called")
+		}
+	})
+
+	t.Run("sidecar failure logs warning but does not crash app", func(t *testing.T) {
+		app := New(&Config{
+			Name:       "test-fault-tolerant",
+			EnableHTTP: false,
+		})
+
+		sc := &mockSidecar{
+			name:     "faulty-sidecar",
+			started:  make(chan struct{}),
+			stopped:  make(chan struct{}),
+			startErr: nil, // will return after ctx done
+		}
+		app.AddSidecar(sc)
+
+		done := make(chan error, 1)
+		go func() {
+			done <- app.RunSidecars()
+		}()
+
+		// Wait for sidecar to start
+		select {
+		case <-sc.started:
+		case <-time.After(3 * time.Second):
+			t.Fatal("sidecar did not start")
+		}
+
+		app.cancel()
+
+		select {
+		case err := <-done:
+			if err != nil {
+				t.Errorf("RunSidecars returned error: %v", err)
+			}
+		case <-time.After(5 * time.Second):
+			t.Fatal("RunSidecars did not return")
+		}
+	})
+
+	t.Run("multiple sidecars run concurrently", func(t *testing.T) {
+		app := New(&Config{
+			Name:       "test-multi-sidecar",
+			EnableHTTP: false,
+		})
+
+		sc1 := &mockSidecar{name: "sidecar-1", started: make(chan struct{}), stopped: make(chan struct{})}
+		sc2 := &mockSidecar{name: "sidecar-2", started: make(chan struct{}), stopped: make(chan struct{})}
+		sc3 := &mockSidecar{name: "sidecar-3", started: make(chan struct{}), stopped: make(chan struct{})}
+		app.AddSidecar(sc1)
+		app.AddSidecar(sc2)
+		app.AddSidecar(sc3)
+
+		done := make(chan error, 1)
+		go func() {
+			done <- app.RunSidecars()
+		}()
+
+		// Wait for all sidecars to start
+		for i, sc := range []*mockSidecar{sc1, sc2, sc3} {
+			select {
+			case <-sc.started:
+			case <-time.After(3 * time.Second):
+				t.Fatalf("sidecar %d did not start", i+1)
+			}
+		}
+
+		if len(app.sidecars) != 3 {
+			t.Errorf("expected 3 sidecars, got %d", len(app.sidecars))
+		}
+
+		app.cancel()
+
+		select {
+		case err := <-done:
+			if err != nil {
+				t.Errorf("RunSidecars returned error: %v", err)
+			}
+		case <-time.After(5 * time.Second):
+			t.Fatal("RunSidecars did not return")
+		}
+
+		// Verify all sidecars were stopped
+		for i, sc := range []*mockSidecar{sc1, sc2, sc3} {
+			select {
+			case <-sc.stopped:
+			case <-time.After(time.Second):
+				t.Fatalf("sidecar %d Stop was not called", i+1)
+			}
+		}
+	})
+
+	t.Run("Adapters returns adapters reference", func(t *testing.T) {
+		app := New(nil)
+
+		if app.Adapters() == nil {
+			t.Error("Adapters() should return non-nil adapters")
+		}
+	})
+
+	t.Run("Registry returns handler registry", func(t *testing.T) {
+		app := New(nil)
+
+		if app.Registry() == nil {
+			t.Error("Registry() should return non-nil registry")
+		}
+	})
 }

@@ -498,12 +498,16 @@ func (a *App) RunSidecars() error {
 		colorYellow, colorReset)
 	fmt.Println()
 
-	// Wait for shutdown signal
-	sig := <-sigCh
-	fmt.Printf("\n%s⚠ Received shutdown signal:%s %s\n",
-		colorYellow, colorReset, sig.String())
-	if a.adapters.Logger != nil {
-		a.adapters.Logger.Info("Received shutdown signal", "signal", sig.String())
+	// Wait for shutdown signal or context cancellation
+	select {
+	case sig := <-sigCh:
+		fmt.Printf("\n%s⚠ Received shutdown signal:%s %s\n",
+			colorYellow, colorReset, sig.String())
+		if a.adapters.Logger != nil {
+			a.adapters.Logger.Info("Received shutdown signal", "signal", sig.String())
+		}
+	case <-a.ctx.Done():
+		fmt.Printf("\n%s⚠ Context cancelled, shutting down...%s\n", colorYellow, colorReset)
 	}
 
 	return a.Shutdown()
