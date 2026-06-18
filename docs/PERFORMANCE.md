@@ -125,14 +125,16 @@ func CustomHandler() {
 
 ## Benchmark Results
 
-### Test Environment
+## Test Environment (Latest)
 
 ```
-CPU:    Intel(R) Core(TM) i5-8257U @ 1.40GHz
-OS:     macOS Darwin 24.6.0
-Go:     1.25.1
-Cores:  8 (with hyperthreading)
+CPU:    Intel(R) Core(TM) i7-9700 @ 3.00GHz
+OS:     Linux, amd64
+Go:     1.24+
+Cores:  8
 ```
+
+*Test environment may vary — run benchmarks on your target hardware for accurate numbers.*
 
 ### Detailed Benchmarks
 
@@ -145,8 +147,8 @@ go test -bench=. -benchmem
 
 ```
 BenchmarkContextAcquire-8
-    30,317,943 ops        # 30 million operations per second
-    38.76 ns/op           # 38 nanoseconds per operation
+    36,244,999 ops        # 36 million operations per second
+    35.05 ns/op           # 35 nanoseconds per operation
     0 B/op                # Zero bytes allocated
     0 allocs/op           # Zero allocations
 ```
@@ -161,8 +163,8 @@ BenchmarkContextAcquire-8
 
 ```
 BenchmarkContextAcquireWithAccess-8
-    31,063,407 ops
-    38.40 ns/op
+    35,487,033 ops
+    33.52 ns/op
     0 B/op
     0 allocs/op
 ```
@@ -185,8 +187,8 @@ ctx.Release()
 
 ```
 BenchmarkContextMetadata-8
-    5,120,053 ops
-    233.4 ns/op
+    5,622,249 ops
+    211.3 ns/op
     0 B/op
     0 allocs/op
 ```
@@ -201,7 +203,7 @@ _, _ = ctx.Get("key2")
 ```
 
 **Analysis:**
-- 5 operations = 46.7 ns per operation
+- 5 operations = 42.3 ns per operation
 - Map operations are pre-allocated
 - RWMutex adds minimal overhead
 - Zero allocations due to map reuse
@@ -210,8 +212,8 @@ _, _ = ctx.Get("key2")
 
 ```
 BenchmarkContextRequest-8
-    13,826,594 ops
-    87.75 ns/op
+    15,705,850 ops
+    81.94 ns/op
     0 B/op
     0 allocs/op
 ```
@@ -234,8 +236,8 @@ req.Headers["Authorization"] = "Bearer token"
 
 ```
 BenchmarkContextJSON-8
-    15,488,298 ops
-    77.17 ns/op
+    17,762,919 ops
+    68.64 ns/op
     0 B/op
     0 allocs/op
 ```
@@ -259,8 +261,8 @@ _ = ctx.JSON(200, data)
 
 ```
 BenchmarkContextParallel-8
-    7,564,668 ops
-    195.1 ns/op
+    4,823,120 ops
+    237.9 ns/op
     336 B/op
     2 allocs/op
 ```

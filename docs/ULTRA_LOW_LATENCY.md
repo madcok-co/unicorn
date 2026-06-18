@@ -100,10 +100,11 @@ BenchmarkContextAcquire-8    30,317,943    38.76 ns/op    0 B/op    0 allocs/op
 ## 🚀 Quick Facts
 
 ```
-Context Operations:    38 ns/op,    0 allocs/op
-JSON Responses:        77 ns/op,    0 allocs/op  
-Request Handling:      87 ns/op,    0 allocs/op
-Throughput:           30M+ ops/sec per core
+Context Operations:    35 ns/op,    0 allocs/op
+JSON Responses:        69 ns/op,    0 allocs/op  
+Request Handling:      82 ns/op,    0 allocs/op
+Metadata Access:      212 ns/op,    0 allocs/op
+Throughput:           33M+ ops/sec per core
 GC Pressure:          Zero allocations on hot path
 ```
 
@@ -219,51 +220,58 @@ cd core/pkg/context
 go test -bench=. -benchmem
 ```
 
-### Results on Intel Core i5-8257U @ 1.40GHz:
+### Results on Intel Core i7-9700 @ 3.00GHz:
 
 ```
 BenchmarkContextAcquire-8
-  30,317,943 ops/sec
-  38.76 ns/op
+  36,244,999 ops/sec
+  35.05 ns/op
   0 B/op
   0 allocs/op
 
 BenchmarkContextAcquireWithAccess-8
-  31,063,407 ops/sec
-  38.40 ns/op
+  35,487,033 ops/sec
+  33.52 ns/op
   0 B/op
   0 allocs/op
 
 BenchmarkContextMetadata-8
-  5,120,053 ops/sec
-  233.4 ns/op
+  5,622,249 ops/sec
+  211.3 ns/op
   0 B/op
   0 allocs/op
 
 BenchmarkContextRequest-8
-  13,826,594 ops/sec
-  87.75 ns/op
+  15,705,850 ops/sec
+  81.94 ns/op
   0 B/op
   0 allocs/op
 
 BenchmarkContextJSON-8
-  15,488,298 ops/sec
-  77.17 ns/op
+  17,762,919 ops/sec
+  68.64 ns/op
   0 B/op
   0 allocs/op
 
 BenchmarkContextParallel-8
-  7,564,668 ops/sec
-  195.1 ns/op
+  4,823,120 ops/sec
+  237.9 ns/op
   336 B/op
   2 allocs/op
+```
+
+*Older results on i5-8257U @ 1.40GHz:*
+
+```
+BenchmarkContextAcquire-8    38.76 ns/op  0 B/op  0 allocs/op
+BenchmarkContextJSON-8       77.17 ns/op  0 B/op  0 allocs/op
 ```
 
 ## 🎯 Performance Comparison
 
 | Framework | Context ns/op | Allocs/op | Throughput |
 |-----------|---------------|-----------|------------|
-| **Unicorn** | **38** | **0** | **30M+** |
+| **Unicorn** | **35** | **0** | **33M+** |
 | Fiber | 50 | 0-1 | 25M+ |
 | Echo | 120 | 1-2 | 12M+ |
 | Gin | 150 | 2-3 | 10M+ |

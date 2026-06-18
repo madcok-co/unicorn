@@ -3,7 +3,7 @@
 ## 🚀 Ultra-Low Latency Features
 
 ```
-Performance:  38 ns/op, 0 allocs/op, 30M+ ops/sec
+Performance:  35 ns/op, 0 allocs/op, 33M+ ops/sec
 Pooling:      sync.Pool for context reuse
 GC Impact:    Zero allocations on hot path
 Concurrency:  Thread-safe with RWMutex
@@ -13,10 +13,10 @@ Concurrency:  Thread-safe with RWMutex
 
 | Operation | ns/op | Allocs | Throughput |
 |-----------|-------|--------|------------|
-| Context Acquire | 38 | 0 | 30M/s |
-| JSON Response | 77 | 0 | 15M/s |
-| Request Data | 88 | 0 | 14M/s |
-| Metadata Ops | 233 | 0 | 5M/s |
+| Context Acquire | 35 | 0 | 33M/s |
+| JSON Response | 69 | 0 | 17M/s |
+| Request Data | 82 | 0 | 15M/s |
+| Metadata Ops | 211 | 0 | 5M/s |
 
 ## ✅ Do's
 
@@ -85,7 +85,7 @@ curl localhost:6060/debug/pprof/heap > mem.prof
 
 | Framework | ns/op | Allocs | Notes |
 |-----------|-------|--------|-------|
-| **Unicorn** | **38** | **0** | Object pooling |
+| **Unicorn** | **35** | **0** | Object pooling |
 | Fiber | 50 | 0-1 | fasthttp-based |
 | Echo | 120 | 1-2 | Popular |
 | Gin | 150 | 2-3 | Most used |
