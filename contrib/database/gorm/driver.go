@@ -46,9 +46,10 @@ func (d *Driver) FindByID(ctx context.Context, id any, dest any) error {
 	return d.db.WithContext(ctx).First(dest, id).Error
 }
 
-// FindOne finds a single entity matching the query
+// FindOne finds a single entity matching the query.
+// Uses Take() instead of First() to avoid conflicting ORDER BY clauses.
 func (d *Driver) FindOne(ctx context.Context, dest any, query string, args ...any) error {
-	return d.db.WithContext(ctx).Where(query, args...).First(dest).Error
+	return d.db.WithContext(ctx).Where(query, args...).Take(dest).Error
 }
 
 // FindAll finds all entities matching the query

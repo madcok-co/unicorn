@@ -23,7 +23,7 @@ type Adapter struct {
 	mu       sync.Mutex
 	running  bool
 	stopCh   chan struct{}
-	handlers map[string]*handler.Handler // topic -> handler mapping
+	handlers map[string][]*handler.Handler // topic -> []handlers (fan-out)
 }
 
 // Config untuk broker adapter
@@ -66,7 +66,7 @@ func New(broker contracts.Broker, registry *handler.Registry, config *Config) *A
 		registry: registry,
 		config:   config,
 		stopCh:   make(chan struct{}),
-		handlers: make(map[string]*handler.Handler),
+		handlers: make(map[string][]*handler.Handler),
 	}
 }
 
@@ -151,7 +151,7 @@ func (a *Adapter) collectTopics() []string {
 	for _, h := range a.registry.All() {
 		for _, trigger := range h.GetMessageTriggers() {
 			topicSet[trigger.Topic] = true
-			a.handlers[trigger.Topic] = h
+			a.handlers[trigger.Topic] = append(a.handlers[trigger.Topic], h)
 		}
 	}
 
@@ -162,38 +162,44 @@ func (a *Adapter) collectTopics() []string {
 	return topics
 }
 
-// handleMessage processes incoming messages
+// handleMessage processes incoming messages, fanning out to all handlers
+// registered for the topic.
 func (a *Adapter) handleMessage(ctx context.Context, msg *contracts.BrokerMessage) error {
-	h, ok := a.handlers[msg.Topic]
-	if !ok {
+	handlers, ok := a.handlers[msg.Topic]
+	if !ok || len(handlers) == 0 {
 		return fmt.Errorf("no handler for topic: %s", msg.Topic)
 	}
 
-	// Create unicorn context
-	uctx := ucontext.New(ctx)
+	var lastErr error
+	for _, h := range handlers {
+		// Create unicorn context
+		uctx := ucontext.New(ctx)
 
-	// Set app adapters if available
-	if a.appAdapters != nil {
-		uctx.SetAppAdapters(a.appAdapters)
+		// Set app adapters if available
+		if a.appAdapters != nil {
+			uctx.SetAppAdapters(a.appAdapters)
+		}
+
+		req := &ucontext.Request{
+			Body:        msg.Body,
+			Headers:     msg.Headers,
+			Topic:       msg.Topic,
+			Partition:   msg.Partition,
+			Offset:      msg.Offset,
+			Key:         msg.Key,
+			TriggerType: "message",
+		}
+		uctx.SetRequest(req)
+
+		// Execute handler
+		executor := handler.NewExecutor(h)
+		if err := executor.Execute(uctx); err != nil {
+			lastErr = a.handleError(ctx, msg, h, err)
+		}
 	}
 
-	req := &ucontext.Request{
-		Body:        msg.Body,
-		Headers:     msg.Headers,
-		Topic:       msg.Topic,
-		Partition:   msg.Partition,
-		Offset:      msg.Offset,
-		Key:         msg.Key,
-		TriggerType: "message",
-	}
-	uctx.SetRequest(req)
-
-	// Execute handler
-	executor := handler.NewExecutor(h)
-	err := executor.Execute(uctx)
-
-	if err != nil {
-		return a.handleError(ctx, msg, h, err)
+	if lastErr != nil {
+		return lastErr
 	}
 
 	// Acknowledge if not auto-ack
