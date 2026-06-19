@@ -62,6 +62,9 @@ type App struct {
 	sidecars  []contracts.Sidecar
 	sidecarWg sync.WaitGroup // tracks goroutines that call sidecar.Start()
 
+	// HTTP middlewares (global, applied to all routes)
+	httpMiddlewares []httpAdapter.Middleware
+
 	// Lifecycle hooks
 	onStart []func() error
 	onStop  []func() error
@@ -284,6 +287,13 @@ func (a *App) Authz(name ...string) contracts.Authorizer {
 		return a.adapters.Authorizers[name[0]]
 	}
 	return a.adapters.Authorizer
+}
+
+// Use adds global HTTP middleware (applied to all routes)
+// Middleware runs in order added: first added = outermost
+func (a *App) Use(middleware ...httpAdapter.Middleware) *App {
+	a.httpMiddlewares = append(a.httpMiddlewares, middleware...)
+	return a
 }
 
 // SetCronScheduler sets the cron scheduler
@@ -612,6 +622,8 @@ func (a *App) runLegacyMode() error {
 	if a.config.EnableHTTP && a.registry.HasHTTPHandlers() {
 		a.httpAdapter = httpAdapter.New(a.registry, a.config.HTTP)
 		a.httpAdapter.SetAppAdapters(a.adapters)
+		// Apply global HTTP middlewares
+		a.httpAdapter.Use(a.httpMiddlewares...)
 		wg.Add(1)
 		go func() {
 			defer wg.Done()

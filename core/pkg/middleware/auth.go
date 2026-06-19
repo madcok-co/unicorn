@@ -4,9 +4,11 @@ import (
 	"crypto/subtle"
 	"encoding/base64"
 	"errors"
+	"net/http"
 	"strings"
 
 	ucontext "github.com/madcok-co/unicorn/core/pkg/context"
+	"github.com/madcok-co/unicorn/core/pkg/contracts"
 )
 
 // ============ Common Auth Errors ============
@@ -382,4 +384,44 @@ func SkipPathPrefixes(prefixes ...string) func(*ucontext.Context) bool {
 		}
 		return false
 	}
+}
+
+// ============ Generic Authentication (contracts.Authenticator) ============
+
+// Authentication returns HTTP middleware that validates Bearer tokens
+// using a contracts.Authenticator implementation.
+// Identity is set in the request context and propagated to unicorn Context.
+func Authentication(authenticator contracts.Authenticator) func(http.Handler) http.Handler {
+	return func(next http.Handler) http.Handler {
+		return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+			token := extractBearerToken(r)
+			if token == "" {
+				// No token — pass through for public endpoints
+				next.ServeHTTP(w, r)
+				return
+			}
+			identity, err := authenticator.Validate(r.Context(), token)
+			if err != nil {
+				w.Header().Set("Content-Type", "application/json")
+				w.WriteHeader(http.StatusUnauthorized)
+				w.Write([]byte(`{"error":"invalid token"}`))
+				return
+			}
+			ctx := contracts.SetIdentityInContext(r.Context(), identity)
+			next.ServeHTTP(w, r.WithContext(ctx))
+		})
+	}
+}
+
+// extractBearerToken extracts Bearer token from Authorization header
+func extractBearerToken(r *http.Request) string {
+	auth := r.Header.Get("Authorization")
+	if auth == "" {
+		return ""
+	}
+	parts := strings.SplitN(auth, " ", 2)
+	if len(parts) != 2 || !strings.EqualFold(parts[0], "bearer") {
+		return ""
+	}
+	return parts[1]
 }

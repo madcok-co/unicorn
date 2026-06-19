@@ -235,6 +235,11 @@ func (a *Adapter) createHandler(h *handler.Handler, method, pattern string) http
 			ctx.SetAppAdapters(a.appAdapters)
 		}
 
+		// Propagate identity from HTTP middleware (set via contracts.SetIdentityInContext)
+		if identity, ok := contracts.GetIdentityFromContext(r.Context()); ok {
+			ctx.SetIdentity(identity)
+		}
+
 		// Extract path parameters using Go 1.22+ PathValue
 		params := make(map[string]string)
 		// Extract param names from pattern
