@@ -3,10 +3,12 @@ package http
 import (
 	"context"
 	"crypto/tls"
+	"crypto/x509"
 	"encoding/json"
 	"fmt"
 	"io"
 	"net/http"
+	"os"
 	"strings"
 	"time"
 
@@ -186,6 +188,19 @@ func (a *Adapter) configureTLS() (*tls.Config, error) {
 	}
 	if a.config.TLS.ClientAuth != 0 {
 		tlsConfig.ClientAuth = a.config.TLS.ClientAuth
+	}
+
+	// Load CA certificate for client certificate verification (mTLS)
+	if a.config.TLS.CAFile != "" {
+		caCert, err := os.ReadFile(a.config.TLS.CAFile)
+		if err != nil {
+			return nil, fmt.Errorf("failed to read CA file: %w", err)
+		}
+		caCertPool := x509.NewCertPool()
+		if !caCertPool.AppendCertsFromPEM(caCert) {
+			return nil, fmt.Errorf("failed to parse CA certificate")
+		}
+		tlsConfig.ClientCAs = caCertPool
 	}
 
 	return tlsConfig, nil
