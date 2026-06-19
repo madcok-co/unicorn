@@ -401,7 +401,9 @@ func (b *HandlerBuilder) Cron(schedule string) *HandlerBuilder {
 	return b
 }
 
-// Done finalizes registration
+// Done finalizes registration and returns any error.
+// Duplicate handler names and HTTP routes still return errors.
+// Message topic duplicates are allowed (fan-out support).
 func (b *HandlerBuilder) Done() error {
 	return b.app.registry.Register(b.handler)
 }

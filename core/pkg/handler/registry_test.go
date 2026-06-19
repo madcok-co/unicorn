@@ -127,7 +127,7 @@ func TestRegistry_Register(t *testing.T) {
 		}
 	})
 
-	t.Run("rejects duplicate message topic", func(t *testing.T) {
+	t.Run("allows multiple handlers on same message topic", func(t *testing.T) {
 		r := NewRegistry()
 		h1 := New(func(ctx *context.Context) error { return nil }).
 			Named("h1").Message("orders")
@@ -137,8 +137,16 @@ func TestRegistry_Register(t *testing.T) {
 		r.Register(h1)
 		err := r.Register(h2)
 
-		if err == nil {
-			t.Error("should reject duplicate message topic")
+		if err != nil {
+			t.Errorf("should allow duplicate message topic, got: %v", err)
+		}
+
+		found, ok := r.GetMessageHandler("orders")
+		if !ok {
+			t.Error("should return a handler for orders topic")
+		}
+		if found == nil {
+			t.Error("handler should not be nil")
 		}
 	})
 

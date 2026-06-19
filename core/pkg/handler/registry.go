@@ -11,10 +11,10 @@ type Registry struct {
 	handlers map[string]*Handler
 
 	// Index by trigger type for quick lookup
-	httpHandlers    map[string]*Handler // key: "METHOD:PATH"
-	messageHandlers map[string]*Handler // key: "topic" (generic broker)
-	kafkaHandlers   map[string]*Handler // key: "topic" (legacy)
-	grpcHandlers    map[string]*Handler // key: "service.method"
+	httpHandlers    map[string]*Handler   // key: "METHOD:PATH"
+	messageHandlers map[string][]*Handler // key: "topic" (fan-out support)
+	kafkaHandlers   map[string]*Handler   // key: "topic" (legacy)
+	grpcHandlers    map[string]*Handler   // key: "service.method"
 	cronHandlers    []*Handler
 }
 
@@ -23,7 +23,7 @@ func NewRegistry() *Registry {
 	return &Registry{
 		handlers:        make(map[string]*Handler),
 		httpHandlers:    make(map[string]*Handler),
-		messageHandlers: make(map[string]*Handler),
+		messageHandlers: make(map[string][]*Handler),
 		kafkaHandlers:   make(map[string]*Handler),
 		grpcHandlers:    make(map[string]*Handler),
 		cronHandlers:    make([]*Handler, 0),
@@ -59,10 +59,7 @@ func (r *Registry) Register(h *Handler) error {
 			r.httpHandlers[key] = h
 
 		case *MessageTrigger:
-			if _, exists := r.messageHandlers[t.Topic]; exists {
-				return fmt.Errorf("Message handler already registered for topic: %s", t.Topic)
-			}
-			r.messageHandlers[t.Topic] = h
+			r.messageHandlers[t.Topic] = append(r.messageHandlers[t.Topic], h)
 
 		case *KafkaTrigger:
 			// Legacy support - also register to messageHandlers
@@ -70,7 +67,7 @@ func (r *Registry) Register(h *Handler) error {
 				return fmt.Errorf("Kafka handler already registered for topic: %s", t.Topic)
 			}
 			r.kafkaHandlers[t.Topic] = h
-			r.messageHandlers[t.Topic] = h // Also add to generic message handlers
+			r.messageHandlers[t.Topic] = append(r.messageHandlers[t.Topic], h) // Also add to generic message handlers
 
 		case *GRPCTrigger:
 			key := fmt.Sprintf("%s.%s", t.Service, t.Method)
@@ -108,8 +105,10 @@ func (r *Registry) GetHTTPHandler(method, path string) (*Handler, bool) {
 func (r *Registry) GetMessageHandler(topic string) (*Handler, bool) {
 	r.mu.RLock()
 	defer r.mu.RUnlock()
-	h, ok := r.messageHandlers[topic]
-	return h, ok
+	if handlers, ok := r.messageHandlers[topic]; ok && len(handlers) > 0 {
+		return handlers[0], true
+	}
+	return nil, false
 }
 
 // GetKafkaHandler retrieves handler for Kafka topic (legacy)
@@ -184,14 +183,16 @@ func (r *Registry) KafkaTopics() []string {
 	return topics
 }
 
-// MessageHandlers returns all message handlers
+// MessageHandlers returns all message handlers (first handler per topic).
 func (r *Registry) MessageHandlers() map[string]*Handler {
 	r.mu.RLock()
 	defer r.mu.RUnlock()
 
 	result := make(map[string]*Handler)
 	for k, v := range r.messageHandlers {
-		result[k] = v
+		if len(v) > 0 {
+			result[k] = v[0]
+		}
 	}
 	return result
 }
