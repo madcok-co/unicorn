@@ -1,0 +1,28 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+
+jobs:
+  test:
+    name: Go Test
+    runs-on: ubuntu-latest
+    strategy:
+      matrix:
+        go-version: ['1.24', '1.25']
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-go@v5
+        with:
+          go-version: ${{ matrix.go-version }}
+      - name: Run tests
+        run: go test -v -timeout 120s -race ./...
+      - name: Run tests (contrib/grpc)
+        run: cd contrib/grpc && go test -v -timeout 60s -race ./...
+      - name: Run tests (contrib/broker/mqtt)
+        run: cd contrib/broker/mqtt && go test -v -timeout 60s -race ./...
+      - name: Run tests (contrib/websocket)
+        run: cd contrib/websocket && go test -v -timeout 60s ./...
