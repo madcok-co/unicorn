@@ -11,73 +11,86 @@ import (
 const version = "0.1.0"
 
 func main() {
-	if len(os.Args) < 2 {
-		printUsage()
-		os.Exit(1)
-	}
-
-	command := os.Args[1]
-
-	switch command {
-	case "new", "init":
-		cmdNew()
-
-	case "generate", "g":
-		cmdGenerate()
-
-	case "run":
-		cmdRun()
-
-	case "services", "svc":
-		cmdServices()
-
-	case "version", "-v", "--version":
-		fmt.Printf("Unicorn Framework v%s\n", version)
-
-	case "help", "-h", "--help":
-		printUsage()
-
-	default:
-		fmt.Printf("Unknown command: %s\n", command)
-		printUsage()
+	if err := run(os.Args[1:]); err != nil {
 		os.Exit(1)
 	}
 }
 
-func cmdNew() {
-	if len(os.Args) < 3 {
+// run dispatches CLI commands from the given args slice.
+// It returns an error when the command should exit with a non-zero code
+// (the error messages are already printed to stdout by the sub-commands).
+func run(args []string) error {
+	if len(args) < 1 {
+		printUsage()
+		return fmt.Errorf("no command provided")
+	}
+
+	command := args[0]
+	rest := args[1:]
+
+	switch command {
+	case "new", "init":
+		return runNew(rest)
+
+	case "generate", "g":
+		return runGenerate(rest)
+
+	case "run":
+		return runRun(rest)
+
+	case "services", "svc":
+		return runServices(rest)
+
+	case "version", "-v", "--version":
+		fmt.Printf("Unicorn Framework v%s\n", version)
+		return nil
+
+	case "help", "-h", "--help":
+		printUsage()
+		return nil
+
+	default:
+		fmt.Printf("Unknown command: %s\n", command)
+		printUsage()
+		return fmt.Errorf("unknown command: %s", command)
+	}
+}
+
+func runNew(args []string) error {
+	if len(args) < 1 {
 		fmt.Println("Error: project name required")
 		fmt.Println("Usage: unicorn new <project-name>")
-		os.Exit(1)
+		return fmt.Errorf("project name required")
 	}
-	projectName := os.Args[2]
+	projectName := args[0]
 	if err := codegen.GenerateProject(projectName); err != nil {
 		fmt.Printf("Error: %v\n", err)
-		os.Exit(1)
+		return err
 	}
 	fmt.Printf("Project '%s' created successfully!\n", projectName)
 	fmt.Println("\nNext steps:")
 	fmt.Printf("  cd %s\n", projectName)
 	fmt.Println("  go mod tidy")
 	fmt.Println("  go run cmd/server/main.go")
+	return nil
 }
 
-func cmdGenerate() {
-	if len(os.Args) < 3 {
+func runGenerate(args []string) error {
+	if len(args) < 1 {
 		fmt.Println("Error: generator type required")
 		fmt.Println("Usage: unicorn generate <type> <name>")
 		fmt.Println("\nAvailable types:")
 		fmt.Println("  handler   - Generate a new handler")
 		fmt.Println("  model     - Generate a new model")
 		fmt.Println("  service   - Generate a new service")
-		os.Exit(1)
+		return fmt.Errorf("generator type required")
 	}
-	genType := os.Args[2]
-	if len(os.Args) < 4 {
+	genType := args[0]
+	if len(args) < 2 {
 		fmt.Printf("Error: name required for %s\n", genType)
-		os.Exit(1)
+		return fmt.Errorf("name required for %s", genType)
 	}
-	name := os.Args[3]
+	name := args[1]
 
 	var err error
 	switch genType {
@@ -89,63 +102,54 @@ func cmdGenerate() {
 		err = codegen.GenerateService(name)
 	default:
 		fmt.Printf("Unknown generator type: %s\n", genType)
-		os.Exit(1)
+		return fmt.Errorf("unknown generator type: %s", genType)
 	}
 
 	if err != nil {
 		fmt.Printf("Error: %v\n", err)
-		os.Exit(1)
+		return err
 	}
 	fmt.Printf("%s '%s' generated successfully!\n", genType, name)
+	return nil
 }
 
-func cmdRun() {
-	// Parse flags
+func runRun(args []string) error {
 	services := []string{}
 	portStrategy := "shared"
 	port := 8080
 
-	for i := 2; i < len(os.Args); i++ {
-		arg := os.Args[i]
-
+	for _, arg := range args {
 		switch {
 		case arg == "--all" || arg == "-a":
-			// Run all services (default)
 			services = []string{}
 
 		case strings.HasPrefix(arg, "--service=") || strings.HasPrefix(arg, "-s="):
-			// --service=user-service,order-service
 			val := strings.TrimPrefix(arg, "--service=")
 			val = strings.TrimPrefix(val, "-s=")
 			services = strings.Split(val, ",")
 
 		case strings.HasPrefix(arg, "--port=") || strings.HasPrefix(arg, "-p="):
-			// --port=8080
 			val := strings.TrimPrefix(arg, "--port=")
 			val = strings.TrimPrefix(val, "-p=")
-			_, _ = fmt.Sscanf(val, "%d", &port) // Parse error returns default port value
+			_, _ = fmt.Sscanf(val, "%d", &port)
 
 		case arg == "--separate":
-			// Each service on separate port
 			portStrategy = "separate"
 
 		case arg == "--shared":
-			// All services on shared port (default)
 			portStrategy = "shared"
 
 		case arg == "--help" || arg == "-h":
 			printRunUsage()
-			os.Exit(0)
+			return nil
 
 		default:
-			// Treat as service name if no prefix
 			if !strings.HasPrefix(arg, "-") {
 				services = append(services, arg)
 			}
 		}
 	}
 
-	// Generate run configuration
 	fmt.Println("Run Configuration:")
 	fmt.Printf("  Port Strategy: %s\n", portStrategy)
 	fmt.Printf("  Base Port: %d\n", port)
@@ -165,9 +169,10 @@ func cmdRun() {
 
 	fmt.Println("\nOr in your main.go:")
 	fmt.Println("  app.RunServices(\"" + strings.Join(services, "\", \"") + "\")")
+	return nil
 }
 
-func cmdServices() {
+func runServices(args []string) error {
 	fmt.Println("Service Management")
 	fmt.Println("\nTo list services in your application, add this to your code:")
 	fmt.Println("")
@@ -178,6 +183,7 @@ func cmdServices() {
 	fmt.Printf("          fmt.Printf(\"    - %%s\\n\", h.Name)\n")
 	fmt.Println("      }")
 	fmt.Println("  }")
+	return nil
 }
 
 func printRunUsage() {
