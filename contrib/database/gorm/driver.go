@@ -43,7 +43,7 @@ func (d *Driver) Create(ctx context.Context, entity any) error {
 
 // FindByID finds an entity by its ID
 func (d *Driver) FindByID(ctx context.Context, id any, dest any) error {
-	return d.db.WithContext(ctx).First(dest, id).Error
+	return d.db.WithContext(ctx).First(dest, "id = ?", id).Error
 }
 
 // FindOne finds a single entity matching the query.
