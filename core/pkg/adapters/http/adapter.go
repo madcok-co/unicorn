@@ -7,6 +7,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"io"
+	"log"
 	"net/http"
 	"os"
 	"strings"
@@ -364,8 +365,8 @@ func (a *Adapter) writeError(w http.ResponseWriter, err error) {
 		return
 	}
 
-	// For all other errors, return generic message to prevent information leakage
-	// The actual error should be logged internally, not exposed to client
+	// Log the actual error for debugging, but return a safe message to the client
+	log.Printf("[http] handler error (500): %v", err)
 	w.WriteHeader(http.StatusInternalServerError)
 	_ = json.NewEncoder(w).Encode(map[string]string{
 		"error": "Internal server error",
