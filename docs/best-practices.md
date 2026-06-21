@@ -478,7 +478,7 @@ func LoadConfig() (*Config, error) {
 
 ```go
 func main() {
-    app := unicorn.New(config)
+    application := app.New(config)
     
     // Setup handlers...
     
@@ -494,10 +494,10 @@ func main() {
         ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
         defer cancel()
         
-        app.ShutdownWithContext(ctx)
+        application.ShutdownWithContext(ctx)
     }()
     
-    app.Start()
+    application.Start()
 }
 ```
 
@@ -533,7 +533,7 @@ app.RegisterHandler(func(ctx *unicorn.Context) (*HealthResponse, error) {
 
 ```dockerfile
 # Build stage
-FROM golang:1.21-alpine AS builder
+FROM golang:1.24-alpine AS builder
 WORKDIR /app
 COPY go.mod go.sum ./
 RUN go mod download
@@ -620,7 +620,7 @@ paymentCB := circuitbreaker.New("payment-service", circuitbreaker.Config{
     },
 })
 
-func ProcessPayment(ctx *unicorn.Context, req PaymentRequest) error {
+func ProcessPayment(ctx *context.Context, req PaymentRequest) error {
     result, err := paymentCB.Execute(func() (interface{}, error) {
         return paymentGateway.Charge(req)
     })

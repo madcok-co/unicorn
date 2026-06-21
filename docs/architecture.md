@@ -72,26 +72,29 @@ The Unicorn Context provides access to all infrastructure:
 type Context struct {
     // Standard context
     ctx context.Context
-    
-    // Request info
-    request *Request
-    
-    // Infrastructure
-    db      Database
-    cache   Cache
-    logger  Logger
-    queue   Queue
-    broker  Broker
-    metrics Metrics
-    tracer  Tracer
-    
+
+    // Reference to app-level adapters (lazy injection)
+    app *AppAdapters
+
     // Security
     identity *Identity
-    
-    // Custom metadata
-    metadata map[string]any
+
+    // Custom services registry
+    services   map[string]any
+    servicesMu sync.RWMutex
+
+    // Request/Response data
+    request  *Request
+    response *Response
+
+    // Metadata with mutex for thread-safe access
+    metadata   map[string]any
+    metadataMu sync.RWMutex
 }
 ```
+
+Infrastructure (DB, Cache, Logger, Queue, Broker, Metrics, Tracer, etc.) is accessed
+lazily through the shared `app *AppAdapters` pointer — no per-request adapter copies.
 
 ### 4. Adapters
 
@@ -160,7 +163,7 @@ github.com/madcok-co/unicorn/
 │   │   └── telemetry.go    # OpenTelemetry tracing/metrics
 │   ├── resilience/         # Resilience patterns
 │   │   ├── circuitbreaker.go  # Circuit breaker
-│   │   └── retry.go        # Retry, bulkhead, timeout, fallback
+│   │   └── retry.go            # Retry with exponential backoff
 │   └── adapters/           # Infrastructure implementations
 │       ├── http/           # HTTP server adapter
 │       ├── broker/         # Message broker adapters

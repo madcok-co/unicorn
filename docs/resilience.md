@@ -219,38 +219,22 @@ config.RetryIf = resilience.NonRetryableErrors(
 
 ## Bulkhead
 
-Limits concurrent executions to prevent overload.
-
-```go
-// Allow max 10 concurrent requests, 5s timeout to acquire slot
-bulkhead := resilience.NewBulkhead(10, 5*time.Second)
-
-err := bulkhead.Execute(func() error {
-    return expensiveOperation()
-})
-
-if errors.Is(err, resilience.ErrBulkheadFull) {
-    return ctx.Error(503, "Service overloaded")
-}
-
-// Check available slots
-available := bulkhead.Available()
-```
+> **⚠️ Planned / Coming Soon** — Bulkhead is not yet implemented in the resilience package.
+> This pattern will limit concurrent executions to prevent overload.
 
 ## Timeout
 
-Enforce time limits on operations:
+> **Note:** Timeout is implemented in the `middleware` package, not in `resilience`.
+> Use `middleware.Timeout(duration)` as middleware, or use Go's `context.WithTimeout` directly.
 
 ```go
-// Simple timeout
-err := resilience.WithTimeout(5*time.Second, func() error {
-    return slowOperation()
-})
+// As middleware (applies to all handlers)
+app.Use(middleware.Timeout(30 * time.Second))
 
-// With parent context
-err := resilience.WithTimeoutContext(ctx, 5*time.Second, func(ctx context.Context) error {
-    return slowOperation(ctx)
-})
+// Manual approach in handler
+ctx, cancel := context.WithTimeout(ctx.Context(), 5*time.Second)
+defer cancel()
+err := slowOperation(ctx)
 
 if errors.Is(err, context.DeadlineExceeded) {
     return ctx.Error(504, "Operation timed out")
@@ -259,27 +243,17 @@ if errors.Is(err, context.DeadlineExceeded) {
 
 ## Fallback
 
-Provide graceful degradation:
+> **⚠️ Planned** — `resilience.WithFallback` and `resilience.WithFallbackValue` are not yet implemented.
+> Currently, fallback logic is handled manually with error checking:
 
 ```go
-// Fallback function
-result, err := resilience.WithFallback(
-    func() (*User, error) {
-        return userService.GetUser(userID)
-    },
-    func(err error) (*User, error) {
-        // Return cached user on error
-        return cache.GetUser(userID)
-    },
-)
-
-// Fallback value
-result, err := resilience.WithFallbackValue(
-    func() (*Config, error) {
-        return configService.GetConfig()
-    },
-    defaultConfig,  // Use default config on error
-)
+// Manual fallback pattern (available today)
+result, err := userService.GetUser(userID)
+if err != nil {
+    // Graceful degradation — use cached/default value
+    return cache.GetUser(userID)
+}
+return result, nil
 ```
 
 ## Combining Patterns
@@ -298,35 +272,30 @@ err := cb.ExecuteWithRetry(retryer, func() error {
 
 ### Full Resilience Stack
 
+> **Note:** Bulkhead and Fallback are planned features. Timeout is in the `middleware` package.
+> The example below shows the target architecture once all patterns are implemented.
+
 ```go
 func CallExternalService(ctx context.Context, req *Request) (*Response, error) {
-    var resp *Response
-    
-    // 1. Bulkhead - limit concurrency
-    err := bulkhead.ExecuteWithContext(ctx, func(ctx context.Context) error {
+    // 1. Circuit breaker - prevent cascading failures
+    return circuitBreaker.ExecuteWithContext(ctx, func(ctx context.Context) error {
         
-        // 2. Circuit breaker - prevent cascading failures
-        return circuitBreaker.ExecuteWithContext(ctx, func(ctx context.Context) error {
+        // 2. Retry - handle transient failures
+        return retryer.DoWithContext(ctx, func(ctx context.Context) error {
             
-            // 3. Retry - handle transient failures
-            return retryer.DoWithContext(ctx, func(ctx context.Context) error {
-                
-                // 4. Timeout - enforce time limit
-                return resilience.WithTimeoutContext(ctx, 5*time.Second, func(ctx context.Context) error {
-                    var err error
-                    resp, err = client.Call(ctx, req)
-                    return err
-                })
-            })
+            // 3. Timeout - enforce time limit (via context)
+            tCtx, cancel := context.WithTimeout(ctx, 5*time.Second)
+            defer cancel()
+            
+            resp, err := client.Call(tCtx, req)
+            
+            // 4. Fallback - graceful degradation (manual pattern)
+            if err != nil {
+                return getFallbackResponse(req), nil
+            }
+            return resp, nil
         })
     })
-    
-    // 5. Fallback - graceful degradation
-    if err != nil {
-        return getFallbackResponse(req), nil
-    }
-    
-    return resp, nil
 }
 ```
 
@@ -348,6 +317,8 @@ func CallExternalService(ctx context.Context, req *Request) (*Response, error) {
 5. **Respect context**: Cancel retries when context is cancelled
 
 ### Bulkhead
+
+> ⚠️ **Planned feature** — not yet implemented. Once available:
 
 1. **Size appropriately**: Based on downstream capacity
 2. **Set reasonable timeout**: Don't wait forever for a slot

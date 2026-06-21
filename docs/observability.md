@@ -19,16 +19,19 @@ Unicorn provides three pillars of observability:
 ```go
 type Metrics interface {
     // Counter for cumulative values
-    Counter(name string, labels ...string) Counter
+    Counter(name string, tags ...Tag) Counter
     
     // Gauge for current values
-    Gauge(name string, labels ...string) Gauge
+    Gauge(name string, tags ...Tag) Gauge
     
     // Histogram for distributions
-    Histogram(name string, buckets []float64, labels ...string) Histogram
+    Histogram(name string, tags ...Tag) Histogram
     
-    // Summary for percentiles
-    Summary(name string, objectives map[float64]float64, labels ...string) Summary
+    // Timer for measuring durations
+    Timer(name string, tags ...Tag) Timer
+    
+    // WithTags returns metrics with additional default tags
+    WithTags(tags ...Tag) Metrics
 }
 
 type Counter interface {
@@ -46,6 +49,17 @@ type Gauge interface {
 
 type Histogram interface {
     Observe(float64)
+}
+
+type Timer interface {
+    Start() func()
+    Record(duration time.Duration)
+    Time(fn func())
+}
+
+type Tag struct {
+    Key   string
+    Value string
 }
 ```
 
@@ -105,14 +119,14 @@ metrics.Counter("messages_consumed_total", "topic", "status")
 
 ```go
 type Tracer interface {
-    // Start a new span
-    StartSpan(name string, opts ...SpanOption) Span
+    // Start a new span (returns updated context + span)
+    Start(ctx context.Context, name string, opts ...SpanOption) (context.Context, Span)
     
-    // Extract span context from carrier
-    Extract(carrier any) SpanContext
+    // Extract span context from carrier (for incoming requests)
+    Extract(ctx context.Context, carrier Carrier) context.Context
     
-    // Inject span context into carrier
-    Inject(ctx SpanContext, carrier any)
+    // Inject span context into carrier (for outgoing requests)
+    Inject(ctx context.Context, carrier Carrier) error
 }
 
 type Span interface {
@@ -140,15 +154,14 @@ func CreateOrder(ctx *unicorn.Context, req CreateOrderRequest) (*Order, error) {
     tracer := ctx.Tracer()
     
     // Start parent span
-    span := tracer.StartSpan("CreateOrder")
+    spanCtx, span := tracer.Start(ctx.Context(), "CreateOrder")
     defer span.End()
     
     span.SetAttribute("user_id", req.UserID)
     span.SetAttribute("product_id", req.ProductID)
     
     // Child span for validation
-    validateSpan := tracer.StartSpan("ValidateOrder", 
-        tracer.ChildOf(span.Context()))
+    _, validateSpan := tracer.Start(spanCtx, "ValidateOrder")
     err := validateOrder(req)
     if err != nil {
         validateSpan.RecordError(err)
@@ -158,8 +171,7 @@ func CreateOrder(ctx *unicorn.Context, req CreateOrderRequest) (*Order, error) {
     validateSpan.End()
     
     // Child span for database
-    dbSpan := tracer.StartSpan("SaveOrder",
-        tracer.ChildOf(span.Context()))
+    _, dbSpan := tracer.Start(spanCtx, "SaveOrder")
     order, err := db.SaveOrder(req)
     if err != nil {
         dbSpan.RecordError(err)
@@ -184,11 +196,10 @@ func HandleMessage(ctx *unicorn.Context, msg Message) error {
     tracer := ctx.Tracer()
     
     // Extract parent context from message headers
-    parentCtx := tracer.Extract(msg.Headers)
+    enrichedCtx := tracer.Extract(ctx.Context(), msg.Headers)
     
     // Start span as child of parent
-    span := tracer.StartSpan("ProcessMessage",
-        tracer.ChildOf(parentCtx))
+    spanCtx, span := tracer.Start(enrichedCtx, "ProcessMessage")
     defer span.End()
     
     // Process message...
@@ -198,12 +209,13 @@ func HandleMessage(ctx *unicorn.Context, msg Message) error {
 // Inject trace context into outgoing request
 func PublishEvent(ctx *unicorn.Context, event Event) error {
     tracer := ctx.Tracer()
-    span := tracer.StartSpan("PublishEvent")
+    spanCtx, span := tracer.Start(ctx.Context(), "PublishEvent")
     defer span.End()
     
     // Inject trace context
     headers := make(map[string]string)
-    tracer.Inject(span.Context(), headers)
+    carrier := contracts.MapCarrier(headers)
+    tracer.Inject(spanCtx, carrier)
     
     // Publish with trace headers
     return broker.Publish(ctx.Context(), "events", &BrokerMessage{
@@ -301,27 +313,14 @@ func ProcessOrder(ctx *unicorn.Context, req OrderRequest) error {
 ```go
 import "github.com/madcok-co/unicorn/pkg/middleware"
 
-// Create observability middleware
-observabilityMiddleware := middleware.NewObservabilityMiddleware(
-    middleware.ObservabilityConfig{
-        Metrics: metricsCollector,
-        Tracer:  tracer,
-        Logger:  logger,
-        
-        // Options
-        LogRequests:     true,
-        LogResponses:    false,  // Don't log response bodies
-        TraceAll:        true,
-        MetricsPrefix:   "myapp_",
-    },
-)
-
-// Apply globally
-app.Use(observabilityMiddleware)
+// Apply observability middleware individually
+app.Use(middleware.Tracing(tracer))
+app.Use(middleware.Metrics(meterProvider))
+app.Use(middleware.NewLogger(logger))
 
 // Or per-handler
 app.RegisterHandler(CreateUser).
-    Use(observabilityMiddleware).
+    Use(middleware.Tracing(tracer)).
     HTTP("POST", "/users").
     Done()
 ```
@@ -381,7 +380,7 @@ func MyHandler(ctx *unicorn.Context, req Request) (*Response, error) {
     
     // Use throughout request lifecycle
     log := ctx.Logger().With("correlation_id", correlationID)
-    span := ctx.Tracer().StartSpan("MyHandler")
+    _, span := ctx.Tracer().Start(ctx.Context(), "MyHandler")
     span.SetAttribute("correlation_id", correlationID)
     
     return &Response{}, nil
@@ -513,7 +512,7 @@ metrics.Histogram("checkout_duration_seconds", buckets)
 
 ```go
 // Trace important operations
-span := tracer.StartSpan("PaymentProcessing")
+_, span := tracer.Start(ctx.Context(), "PaymentProcessing")
 span.SetAttribute("amount", payment.Amount)
 span.SetAttribute("currency", payment.Currency)
 ```

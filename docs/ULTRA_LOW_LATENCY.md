@@ -100,10 +100,10 @@ BenchmarkContextAcquire-8    30,317,943    38.76 ns/op    0 B/op    0 allocs/op
 ## 🚀 Quick Facts
 
 ```
-Context Operations:    35 ns/op,    0 allocs/op
-JSON Responses:        69 ns/op,    0 allocs/op  
-Request Handling:      82 ns/op,    0 allocs/op
-Metadata Access:      212 ns/op,    0 allocs/op
+Context Operations:    ~37 ns/op,   0 allocs/op
+JSON Responses:        ~69 ns/op,   0 allocs/op  
+Request Handling:      ~82 ns/op,   0 allocs/op
+Metadata Access:      ~212 ns/op,   0 allocs/op
 Throughput:           33M+ ops/sec per core
 GC Pressure:          Zero allocations on hot path
 ```
@@ -271,7 +271,7 @@ BenchmarkContextJSON-8       77.17 ns/op  0 B/op  0 allocs/op
 
 | Framework | Context ns/op | Allocs/op | Throughput |
 |-----------|---------------|-----------|------------|
-| **Unicorn** | **35** | **0** | **33M+** |
+| **Unicorn** | **~37** | **0** | **33M+** |
 | Fiber | 50 | 0-1 | 25M+ |
 | Echo | 120 | 1-2 | 12M+ |
 | Gin | 150 | 2-3 | 10M+ |

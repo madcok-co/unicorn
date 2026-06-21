@@ -7,14 +7,20 @@ Unicorn provides production-ready middleware for common use cases.
 ```go
 import "github.com/madcok-co/unicorn/core/pkg/middleware"
 
-// Use individual middleware
-app.Use(middleware.Recovery())
-app.Use(middleware.CORS())
+// Apply middleware at handler level
+app.RegisterHandler(MyHandler).
+    Use(middleware.Recovery()).
+    Use(middleware.CORS()).
+    HTTP("GET", "/api/example").
+    Done()
 
-// Or use production stack
-app.Use(middleware.ProductionStack(&middleware.ProductionStackConfig{
-    Timeout: 30 * time.Second,
-}))
+// Or chain multiple with production stack
+app.RegisterHandler(MyHandler).
+    Use(middleware.ProductionStack(&middleware.ProductionStackConfig{
+        Timeout: 30 * time.Second,
+    })).
+    HTTP("GET", "/api/example").
+    Done()
 ```
 
 ## Available Middleware
@@ -25,10 +31,10 @@ Recovers from panics and returns 500 error:
 
 ```go
 // Basic usage
-app.Use(middleware.Recovery())
+handler.Use(middleware.Recovery())
 
 // With custom config
-app.Use(middleware.RecoveryWithConfig(&middleware.RecoveryConfig{
+handler.Use(middleware.RecoveryWithConfig(&middleware.RecoveryConfig{
     EnableStackTrace: true,
     Logger:           logger,
     OnPanic: func(ctx *context.Context, err interface{}, stack []byte) {
@@ -44,10 +50,10 @@ Enforces request timeout:
 
 ```go
 // 30 second timeout
-app.Use(middleware.Timeout(30 * time.Second))
+handler.Use(middleware.Timeout(30 * time.Second))
 
 // With custom config
-app.Use(middleware.TimeoutWithConfig(&middleware.TimeoutConfig{
+handler.Use(middleware.TimeoutWithConfig(&middleware.TimeoutConfig{
     Timeout: 30 * time.Second,
     OnTimeout: func(ctx *context.Context) {
         ctx.Logger().Warn("request timed out", "path", ctx.Request().Path)
@@ -65,10 +71,10 @@ Cross-Origin Resource Sharing:
 
 ```go
 // Default CORS (allows all origins)
-app.Use(middleware.CORS())
+handler.Use(middleware.CORS())
 
 // Restricted CORS
-app.Use(middleware.CORSWithConfig(&middleware.CORSConfig{
+handler.Use(middleware.CORSWithConfig(&middleware.CORSConfig{
     AllowOrigins:     []string{"https://example.com", "https://app.example.com"},
     AllowMethods:     []string{"GET", "POST", "PUT", "DELETE"},
     AllowHeaders:     []string{"Authorization", "Content-Type"},
@@ -77,7 +83,7 @@ app.Use(middleware.CORSWithConfig(&middleware.CORSConfig{
 }))
 
 // Dynamic origin validation
-app.Use(middleware.CORSWithConfig(&middleware.CORSConfig{
+handler.Use(middleware.CORSWithConfig(&middleware.CORSConfig{
     AllowOriginFunc: func(origin string) bool {
         return strings.HasSuffix(origin, ".example.com")
     },
@@ -90,10 +96,10 @@ Response compression with Gzip and Brotli support:
 
 ```go
 // Default compression (brotli preferred, falls back to gzip)
-app.Use(middleware.Compress())
+handler.Use(middleware.Compress())
 
 // With custom config
-app.Use(middleware.CompressWithConfig(&middleware.CompressConfig{
+handler.Use(middleware.CompressWithConfig(&middleware.CompressConfig{
     Level:     middleware.BestCompression,
     MinLength: 1024, // Only compress responses >= 1KB
     CompressionTypes: []string{
@@ -115,10 +121,10 @@ app.Use(middleware.CompressWithConfig(&middleware.CompressConfig{
 }))
 
 // Compress only specific content types
-app.Use(middleware.CompressWithTypes("application/json", "text/html"))
+handler.Use(middleware.CompressWithTypes("application/json", "text/html"))
 
 // Compress only responses above minimum size
-app.Use(middleware.CompressWithMinLength(2048)) // 2KB
+handler.Use(middleware.CompressWithMinLength(2048)) // 2KB
 ```
 
 **Features:**
@@ -135,19 +141,19 @@ Request/Response logging with sensitive data masking:
 
 ```go
 // Request/Response Logger (default variant)
-app.Use(middleware.RequestResponseLogger(logger))
+handler.Use(middleware.RequestResponseLogger(logger))
 
 // Compact logger (one-line per request)
-app.Use(middleware.CompactLogger(logger))
+handler.Use(middleware.CompactLogger(logger))
 
 // Detailed logger (full request/response bodies)
-app.Use(middleware.DetailedLogger(logger))
+handler.Use(middleware.DetailedLogger(logger))
 
 // Audit logger (captures everything for compliance)
-app.Use(middleware.AuditLogger(logger))
+handler.Use(middleware.AuditLogger(logger))
 
 // With custom config
-app.Use(middleware.LoggerWithConfig(&middleware.LoggerConfig{
+handler.Use(middleware.LoggerWithConfig(&middleware.LoggerConfig{
     Logger:      logger,
     LogRequest:  true,
     LogResponse: true,
@@ -186,10 +192,10 @@ Token-based CSRF protection:
 
 ```go
 // Default CSRF protection
-app.Use(middleware.CSRF())
+handler.Use(middleware.CSRF())
 
 // With custom config
-app.Use(middleware.CSRFWithConfig(&middleware.CSRFConfig{
+handler.Use(middleware.CSRFWithConfig(&middleware.CSRFConfig{
     TokenLength:   32,
     TokenLookup:   "header:X-CSRF-Token",  // Where to look for token
     CookieName:    "_csrf",
@@ -206,7 +212,7 @@ app.Use(middleware.CSRFWithConfig(&middleware.CSRFConfig{
 }))
 
 // Referer-based CSRF protection (for same-origin checks)
-app.Use(middleware.CSRFFromReferer([]string{
+handler.Use(middleware.CSRFFromReferer([]string{
     "https://example.com",
     "https://app.example.com",
 }))
@@ -231,10 +237,10 @@ File upload handling with validation:
 
 ```go
 // Default upload (10MB max)
-app.Use(middleware.Upload())
+handler.Use(middleware.Upload())
 
 // With custom config
-app.Use(middleware.UploadWithConfig(&middleware.UploadConfig{
+handler.Use(middleware.UploadWithConfig(&middleware.UploadConfig{
     MaxSize: 50 * 1024 * 1024, // 50MB
     AllowedExtensions: []string{".jpg", ".png", ".pdf"},
     AllowedMimeTypes: []string{
@@ -255,18 +261,18 @@ app.Use(middleware.UploadWithConfig(&middleware.UploadConfig{
 }))
 
 // Preset: Image uploads only
-app.Use(middleware.UploadImage())
+handler.Use(middleware.UploadImage())
 
 // Preset: Document uploads only
-app.Use(middleware.UploadDocument())
+handler.Use(middleware.UploadDocument())
 
 // Multiple files upload
-app.Use(middleware.UploadMultiple(5)) // Max 5 files
+handler.Use(middleware.UploadMultiple(5)) // Max 5 files
 ```
 
 **Presets:**
-- `UploadImage()` - JPG, PNG, GIF, WebP (10MB max)
-- `UploadDocument()` - PDF, DOC, DOCX, XLS, XLSX (50MB max)
+- `UploadImage()` - JPG, PNG, GIF, WebP, SVG (5MB max)
+- `UploadDocument()` - PDF, DOC, DOCX, XLS, XLSX, PPT, PPTX, TXT, CSV (20MB max)
 
 **Features:**
 - File size validation
@@ -282,16 +288,16 @@ Protect against abuse:
 
 ```go
 // Basic rate limiting (100 requests per minute)
-app.Use(middleware.RateLimit(100, time.Minute))
+handler.Use(middleware.RateLimit(100, time.Minute))
 
 // Rate limit by IP
-app.Use(middleware.RateLimitByIP(100, time.Minute))
+handler.Use(middleware.RateLimitByIP(100, time.Minute))
 
 // Rate limit by user ID
-app.Use(middleware.RateLimitByUserID(1000, time.Hour, "user"))
+handler.Use(middleware.RateLimitByUserID(1000, time.Hour, "user"))
 
 // With Redis backend (distributed)
-app.Use(middleware.RateLimitWithConfig(&middleware.RateLimitConfig{
+handler.Use(middleware.RateLimitWithConfig(&middleware.RateLimitConfig{
     Limit:  100,
     Window: time.Minute,
     Store:  middleware.NewRedisRateLimitStore(cache, "ratelimit:"),
@@ -317,10 +323,10 @@ app.Use(middleware.RateLimitWithConfig(&middleware.RateLimitConfig{
 
 ```go
 // Basic JWT with secret key
-app.Use(middleware.JWT([]byte("your-secret-key")))
+handler.Use(middleware.JWT([]byte("your-secret-key")))
 
 // With custom validator
-app.Use(middleware.JWTWithConfig(&middleware.JWTConfig{
+handler.Use(middleware.JWTWithConfig(&middleware.JWTConfig{
     SigningKey: []byte("your-secret-key"),
     Validator: func(token string) (map[string]interface{}, error) {
         // Parse and validate JWT token
@@ -352,7 +358,7 @@ func handler(ctx *context.Context) error {
 ### API Key Authentication
 
 ```go
-app.Use(middleware.APIKey(func(key string) (interface{}, error) {
+handler.Use(middleware.APIKey(func(key string) (interface{}, error) {
     // Validate API key against database
     apiKey, err := db.FindAPIKey(key)
     if err != nil {
@@ -362,7 +368,7 @@ app.Use(middleware.APIKey(func(key string) (interface{}, error) {
 }))
 
 // With custom config
-app.Use(middleware.APIKeyWithConfig(&middleware.APIKeyConfig{
+handler.Use(middleware.APIKeyWithConfig(&middleware.APIKeyConfig{
     KeyLookup:  "header:X-API-Key",  // or "query:api_key"
     ContextKey: "api_key",
     Validator: func(key string) (interface{}, error) {
@@ -374,7 +380,7 @@ app.Use(middleware.APIKeyWithConfig(&middleware.APIKeyConfig{
 ### Basic Authentication
 
 ```go
-app.Use(middleware.BasicAuth(func(username, password string) (interface{}, error) {
+handler.Use(middleware.BasicAuth(func(username, password string) (interface{}, error) {
     user, err := db.FindUser(username)
     if err != nil || !user.CheckPassword(password) {
         return nil, middleware.ErrUnauthorized
@@ -383,7 +389,7 @@ app.Use(middleware.BasicAuth(func(username, password string) (interface{}, error
 }))
 
 // With custom realm
-app.Use(middleware.BasicAuthWithConfig(&middleware.BasicAuthConfig{
+handler.Use(middleware.BasicAuthWithConfig(&middleware.BasicAuthConfig{
     Realm: "Admin Area",
     Validator: validateCredentials,
 }))
@@ -421,9 +427,15 @@ health.AddChecker("queue", func(ctx context.Context) middleware.HealthCheckResul
 })
 
 // Register endpoints
-app.GET("/health", health.Handler())
-app.GET("/health/live", health.LivenessHandler())
-app.GET("/health/ready", health.ReadinessHandler())
+app.RegisterHandler(health.Handler()).
+    HTTP("GET", "/health").
+    Done()
+app.RegisterHandler(health.LivenessHandler()).
+    HTTP("GET", "/health/live").
+    Done()
+app.RegisterHandler(health.ReadinessHandler()).
+    HTTP("GET", "/health/ready").
+    Done()
 ```
 
 Response format:
@@ -451,10 +463,10 @@ Response format:
 
 ```go
 // With OpenTelemetry tracer
-app.Use(middleware.Tracing(otelTracer))
+handler.Use(middleware.Tracing(otelTracer))
 
 // With custom config
-app.Use(middleware.TracingWithConfig(&middleware.TelemetryConfig{
+handler.Use(middleware.TracingWithConfig(&middleware.TelemetryConfig{
     Tracer:         otelTracer,
     ServiceName:    "my-service",
     ServiceVersion: "1.0.0",
@@ -469,7 +481,7 @@ app.Use(middleware.TracingWithConfig(&middleware.TelemetryConfig{
 
 ```go
 // With meter provider
-app.Use(middleware.Metrics(meterProvider))
+handler.Use(middleware.Metrics(meterProvider))
 
 // Collected metrics:
 // - http_requests_total (counter)
@@ -483,7 +495,7 @@ app.Use(middleware.Metrics(meterProvider))
 
 ```go
 // Chain multiple middleware
-app.Use(middleware.Chain(
+handler.Use(middleware.Chain(
     middleware.Recovery(),
     middleware.CORS(),
     middleware.Timeout(30 * time.Second),
@@ -491,7 +503,7 @@ app.Use(middleware.Chain(
 ))
 
 // Conditional middleware
-app.Use(middleware.ConditionalMiddleware(
+handler.Use(middleware.ConditionalMiddleware(
     func(ctx *context.Context) bool {
         return ctx.Request().Path != "/public"
     },
@@ -499,7 +511,7 @@ app.Use(middleware.ConditionalMiddleware(
 ))
 
 // Path-specific middleware
-app.Use(middleware.PathMiddleware(
+handler.Use(middleware.PathMiddleware(
     []string{"/admin", "/admin/*"},
     middleware.BasicAuth(adminValidator),
 ))

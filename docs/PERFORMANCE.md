@@ -351,13 +351,20 @@ func (c *Context) reset() {
 Adapters are shared at app-level, not per-request:
 
 ```go
+// Simplified view — actual struct has 20 fields (10 default + 10 named maps)
 type AppAdapters struct {
     DB        contracts.Database    // Shared, read-only
     Cache     contracts.Cache       // Shared, read-only
     Logger    contracts.Logger      // Thread-safe
-    // ... more adapters
+    Queue     contracts.Queue
+    Broker    contracts.Broker
+    Validator contracts.Validator
+    Metrics   contracts.Metrics
+    Tracer    contracts.Tracer
+    // ... plus named adapter maps (Databases, Caches, Loggers, etc.)
 }
 
+// ...
 type Context struct {
     app *AppAdapters  // Just a pointer, not a copy
 }
@@ -391,19 +398,21 @@ Fields are ordered for optimal memory alignment:
 
 ```go
 type Context struct {
-    // Pointers first (8 bytes on 64-bit)
+    // Context + pointer (8 bytes each on 64-bit)
     ctx      context.Context
     app      *AppAdapters
     identity *contracts.Identity
+
+    // Services registry (map + mutex adjacent)
+    services   map[string]any
+    servicesMu sync.RWMutex
+
+    // Request/Response pointers
     request  *Request
     response *Response
-    
-    // Maps (24 bytes each)
-    metadata map[string]any
-    services map[string]any
-    
-    // Mutexes last
-    servicesMu sync.RWMutex
+
+    // Metadata (map + mutex adjacent)
+    metadata   map[string]any
     metadataMu sync.RWMutex
 }
 ```

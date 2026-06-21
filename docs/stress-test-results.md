@@ -6,7 +6,7 @@
 
 - **OS**: Linux (WSL2)
 - **CPU**: Intel Core i7-9700 @ 3.00GHz
-- **Go Version**: 1.21+
+- **Go Version**: 1.24+
 - **Date**: February 13, 2026
 
 ## Test Summary
@@ -317,14 +317,16 @@ A single instance can comfortably handle:
 
 ## Running the Tests Yourself
 
+> **Note**: The stress test simulation script is part of the internal test suite and is not included as a standalone file. The results above were generated from the framework's internal benchmarking and concurrency test suite.
+
 ```bash
 # From repository root
 cd unicorn
 
-# Run stress tests
-go run stress_simulation.go
+# Run benchmarks and stress tests
+go test -bench=. -benchtime=10s ./core/...
 
-# Expected runtime: < 30 seconds
+# Expected runtime: < 60 seconds
 # Expected result: All tests pass with metrics similar to above
 ```
 

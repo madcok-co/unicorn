@@ -140,11 +140,15 @@ app.RegisterHandler(ProcessOrder).
 ```go
 import "github.com/madcok-co/unicorn/core/pkg/middleware"
 
-app.Use(middleware.Recovery())
-app.Use(middleware.RequestResponseLogger(logger))
-app.Use(middleware.Compress())
-app.Use(middleware.CSRF())
-app.Use(middleware.RateLimit(100, time.Minute))
+// Apply middleware at handler level
+application.RegisterHandler(MyHandler).
+    Use(middleware.Recovery()).
+    Use(middleware.RequestResponseLogger(logger)).
+    Use(middleware.Compress()).
+    Use(middleware.CSRF()).
+    Use(middleware.RateLimit(100, time.Minute)).
+    HTTP("GET", "/api/protected").
+    Done()
 ```
 
 > 📖 **For AI Assistants:** See [CLAUDE.md](./CLAUDE.md) for comprehensive guidelines  
@@ -523,9 +527,9 @@ vm := versioning.NewManager(&versioning.Config{
 // Add version deprecation
 vm.AddDeprecation("1.0", time.Now().Add(90*24*time.Hour), "2.0")
 
-// Version middleware
-app.Use(func(next http.HandlerFunc) http.HandlerFunc {
-    return func(w http.ResponseWriter, r *http.Request) {
+// Version middleware (applied as HTTP-level middleware)
+app.Use(func(next http.Handler) http.Handler {
+    return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
         version, err := vm.ResolveVersion(r)
         if err != nil {
             http.Error(w, "Invalid version", http.StatusBadRequest)
@@ -535,8 +539,8 @@ app.Use(func(next http.HandlerFunc) http.HandlerFunc {
         // Set deprecation headers if needed
         vm.SetDeprecationHeaders(w, version)
         
-        next(w, r)
-    }
+        next.ServeHTTP(w, r)
+    })
 })
 
 // Version-specific handlers

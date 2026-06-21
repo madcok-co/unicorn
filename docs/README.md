@@ -38,7 +38,10 @@ Unicorn is a batteries-included Go framework where developers only need to focus
 package main
 
 import (
-    "github.com/madcok-co/unicorn/core"
+    "time"
+
+    "github.com/madcok-co/unicorn/core/pkg/app"
+    "github.com/madcok-co/unicorn/core/pkg/context"
     "github.com/madcok-co/unicorn/contrib/database/gorm"
     "github.com/madcok-co/unicorn/contrib/cache/redis"
     "github.com/madcok-co/unicorn/contrib/logger/zap"
@@ -55,40 +58,39 @@ type User struct {
     Email string `json:"email"`
 }
 
-func CreateUser(ctx *unicorn.Context, req CreateUserRequest) (*User, error) {
-    
+func CreateUser(ctx *context.Context, req CreateUserRequest) (*User, error) {
     // Validate
     if err := ctx.Validate(req); err != nil {
         return nil, ctx.Error(400, err.Error())
     }
-    
+
     // Pure business logic - infrastructure accessed via context
     user := &User{ID: "user-123", Name: req.Name, Email: req.Email}
     ctx.DB().Create(ctx.Context(), user)
     ctx.Cache().Set(ctx.Context(), "user:"+user.ID, user, time.Hour)
     ctx.Logger().Info("user created", "id", user.ID)
-    
+
     return user, nil
 }
 
 func main() {
-    app := unicorn.New(&unicorn.Config{
+    application := app.New(&app.Config{
         Name:       "my-app",
         EnableHTTP: true,
     })
 
     // Setup infrastructure with contrib drivers
-    app.SetDB(gorm.NewDriver(db))
-    app.SetCache(redis.NewDriver(rdb))
-    app.SetLogger(zap.NewDriver())
+    application.SetDB(gorm.NewDriver(db))
+    application.SetCache(redis.NewDriver(rdb))
+    application.SetLogger(zap.NewDriver())
 
     // One handler, multiple triggers!
-    app.RegisterHandler(CreateUser).
+    application.RegisterHandler(CreateUser).
         HTTP("POST", "/users").
         Message("user.create").
         Done()
 
-    app.Start()
+    application.Start()
 }
 ```
 

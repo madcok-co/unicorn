@@ -21,7 +21,10 @@ Unicorn provides a comprehensive security layer:
 ### JWT Authentication
 
 ```go
-import "github.com/madcok-co/unicorn/core"
+import (
+    "github.com/madcok-co/unicorn/core"
+    "github.com/madcok-co/unicorn/core/pkg/context"
+)
 
 // Create JWT authenticator
 jwtAuth := unicorn.NewJWTAuthenticator(unicorn.JWTConfig{
@@ -356,7 +359,7 @@ compositeLogger := unicorn.NewCompositeAuditLogger(
 ### Authentication Middleware
 
 ```go
-import "github.com/madcok-co/unicorn/pkg/middleware"
+import "github.com/madcok-co/unicorn/core/pkg/middleware"
 
 // Create auth middleware
 authMiddleware := middleware.NewAuthMiddleware(jwtAuth)
@@ -373,14 +376,14 @@ app.RegisterHandler(SecureHandler).
 ```go
 rateLimitMiddleware := middleware.NewRateLimitMiddleware(rateLimiter, 
     middleware.RateLimitConfig{
-        KeyFunc: func(ctx *unicorn.Context) string {
+        KeyFunc: func(ctx *context.Context) string {
             // Rate limit by user ID or IP
             if identity := ctx.Identity(); identity != nil {
                 return "user:" + identity.ID
             }
             return "ip:" + ctx.Request().Headers["X-Forwarded-For"]
         },
-        ExceededHandler: func(ctx *unicorn.Context) error {
+        ExceededHandler: func(ctx *context.Context) error {
             return &http.HTTPError{
                 StatusCode: 429,
                 Message:    "Too many requests",
@@ -432,8 +435,12 @@ type CreateUserRequest struct {
 ### 3. Use HTTPS in Production
 
 ```go
-app := unicorn.New(&unicorn.Config{
-    HTTP: &unicorn.HTTPConfig{
+app := app.New(&app.Config{
+    Name:       "my-app",
+    EnableHTTP: true,
+    HTTP: &httpAdapter.Config{
+        Host: "0.0.0.0",
+        Port: 8080,
         TLS: &unicorn.TLSConfig{
             Enabled:  true,
             CertFile: "/path/to/cert.pem",
@@ -448,7 +455,7 @@ app := unicorn.New(&unicorn.Config{
 
 ```go
 // Don't expose internal errors
-func GetUser(ctx *unicorn.Context) (*User, error) {
+func GetUser(ctx *context.Context) (*User, error) {
     user, err := db.Find(userID)
     if err != nil {
         // Log internal error
@@ -478,7 +485,7 @@ jwtAuth := unicorn.NewJWTAuthenticator(unicorn.JWTConfig{
 ### 6. Audit Sensitive Operations
 
 ```go
-func DeleteUser(ctx *unicorn.Context) error {
+func DeleteUser(ctx *context.Context) error {
     userID := ctx.Request().Params["id"]
     identity := ctx.Identity()
     

@@ -105,8 +105,8 @@ These prompts might result in AI using other frameworks or standard library:
 
 ```
 "Build a file upload service using Unicorn with:
-- Image upload endpoint (max 10MB, JPG/PNG only)
-- Document upload endpoint (max 50MB, PDF/DOCX)
+- Image upload endpoint (max 5MB, JPG/PNG only)
+- Document upload endpoint (max 20MB, PDF/DOCX)
 - File size and type validation
 - Return uploaded file metadata"
 ```

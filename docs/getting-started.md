@@ -4,7 +4,7 @@ This guide will help you get started with the Unicorn framework.
 
 ## Prerequisites
 
-- Go 1.21 or later
+- Go 1.24 or later
 - Basic understanding of Go
 
 ## Installation
@@ -363,28 +363,29 @@ Unicorn provides production-ready middleware out of the box:
 
 ```go
 import (
+    "time"
+
+    "github.com/madcok-co/unicorn/core/pkg/app"
     "github.com/madcok-co/unicorn/core/pkg/middleware"
 )
 
 func main() {
-    app := unicorn.New(&unicorn.Config{Name: "my-app"})
+    application := app.New(&app.Config{Name: "my-app"})
     
-    // Recovery - catch panics
-    app.Use(middleware.Recovery())
-    
-    // CORS - handle cross-origin requests
-    app.Use(middleware.CORS(middleware.CORSConfig{
-        AllowOrigins: []string{"https://example.com"},
-    }))
-    
-    // Timeout - prevent slow requests
-    app.Use(middleware.Timeout(30 * time.Second))
-    
-    // Rate limiting
-    app.Use(middleware.RateLimit(middleware.RateLimitConfig{
-        Max:      100,
-        Duration: time.Minute,
-    }))
+    // Register handler with middleware
+    application.RegisterHandler(MyHandler).
+        Named("my-handler").
+        Use(middleware.Recovery()).
+        Use(middleware.CORS(middleware.CORSConfig{
+            AllowOrigins: []string{"https://example.com"},
+        })).
+        Use(middleware.Timeout(30 * time.Second)).
+        Use(middleware.RateLimit(middleware.RateLimitConfig{
+            Max:      100,
+            Duration: time.Minute,
+        })).
+        HTTP("GET", "/api/example").
+        Done()
     
     // ...
 }

@@ -2,7 +2,7 @@
 
 All notable changes to the Unicorn framework will be documented in this file.
 
-## [Unreleased] - 2025-11-25
+## [Unreleased] - 2026-06-21
 
 ### Added
 
@@ -24,7 +24,7 @@ All notable changes to the Unicorn framework will be documented in this file.
   - `main_complete.go` (Complete) - ALL framework features in one comprehensive example
 
 #### Infrastructure & DevOps
-- **Docker Compose Stack** with 8 services:
+- **Docker Compose Stack** with 8 services (see `core/examples/complete-features/docker-compose.yml`):
   - PostgreSQL 15 (database)
   - Redis 7 (cache)
   - Kafka + Zookeeper (message broker)
@@ -33,13 +33,12 @@ All notable changes to the Unicorn framework will be documented in this file.
   - Grafana (visualization)
   - Jaeger (distributed tracing)
   - Adminer (database management)
-- **Makefile**: Development workflow automation
-- **Dockerfile**: Multi-stage build for optimized images
+- **Multi-stage Dockerfile**: Optimized container images
 - **Environment Configuration**: `.env.example` template
 - **Prometheus Configuration**: Scraping setup for application metrics
 
 #### Testing
-- **Comprehensive Test Suite** (`test-complete.sh`):
+- **Comprehensive Test Suite**:
   - 20+ automated test cases
   - Health check and metrics validation
   - Complete authentication flow testing
@@ -141,19 +140,19 @@ mux.HandleFunc(pattern, httpHandler)
 
 ```bash
 # Setup environment
-make setup
+cp .env.example .env
 
-# Start all services
-make up
+# Start infrastructure services
+docker compose -f core/examples/complete-features/docker-compose.yml up -d
 
 # Run application
-make run
+go run core/examples/complete-features/main_complete.go
 
 # Run tests
-make test
+go test ./...
 
 # Clean up
-make clean
+docker compose -f core/examples/complete-features/docker-compose.yml down
 ```
 
 ## Contributors

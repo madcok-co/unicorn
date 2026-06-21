@@ -74,22 +74,24 @@ type Context struct {
 
 ```go
 type Request struct {
-    ID             string              // Unique request ID
     TriggerType    string              // "http", "message", "cron"
-    Timestamp      time.Time           // Request timestamp
+    
+    // Common fields
+    Body           []byte
+    Headers        map[string]string
     
     // HTTP specific
     Method         string
     Path           string
     Params         map[string]string   // Path parameters
     Query          map[string]string   // Query parameters
-    Headers        map[string]string
-    Body           []byte
+    Cookies        map[string]string
     
     // Message specific
-    MessageTopic   string
-    MessageKey     []byte
-    MessageHeaders map[string]string
+    Topic          string
+    Partition      int
+    Offset         int64
+    Key            []byte
 }
 ```
 
@@ -146,7 +148,7 @@ type HTTPConfig struct {
     ReadTimeout     time.Duration // Default: 30s
     WriteTimeout    time.Duration // Default: 30s
     IdleTimeout     time.Duration // Default: 60s
-    MaxHeaderBytes  int           // Default: 1MB
+    MaxBodySize     int64         // Max request body size (0 = no limit)
     TLS             *TLSConfig
     CORS            *CORSConfig
 }
@@ -446,21 +448,45 @@ func (b *AuditEventBuilder) Build() *AuditEvent
 
 ```go
 type Database interface {
-    Name() string
-    Type() string
-    Initialize(config any) error
-    Health() error
-    Close() error
-    
     // CRUD operations
-    Create(value any) error
-    FindByID(ctx context.Context, id string, dest any) error
-    Update(value any) error
-    Delete(value any) error
+    Create(ctx context.Context, entity any) error
+    FindByID(ctx context.Context, id any, dest any) error
+    FindOne(ctx context.Context, dest any, query string, args ...any) error
+    FindAll(ctx context.Context, dest any, query string, args ...any) error
+    Update(ctx context.Context, entity any) error
+    Delete(ctx context.Context, entity any) error
     
-    // Query
-    Query(ctx context.Context, query string, args ...any) (Rows, error)
-    Exec(ctx context.Context, query string, args ...any) (Result, error)
+    // Query builder (fluent API)
+    Query() QueryBuilder
+    
+    // Transaction
+    Transaction(ctx context.Context, fn func(tx Database) error) error
+    
+    // Raw query (escape hatch)
+    Raw(ctx context.Context, query string, args ...any) (Result, error)
+    Exec(ctx context.Context, query string, args ...any) (ExecResult, error)
+    
+    // Connection
+    Ping(ctx context.Context) error
+    Close() error
+}
+
+type QueryBuilder interface {
+    Select(columns ...string) QueryBuilder
+    From(table string) QueryBuilder
+    Where(condition string, args ...any) QueryBuilder
+    WhereIn(column string, values ...any) QueryBuilder
+    OrderBy(column string, direction string) QueryBuilder
+    Limit(limit int) QueryBuilder
+    Offset(offset int) QueryBuilder
+    Join(table string, condition string) QueryBuilder
+    LeftJoin(table string, condition string) QueryBuilder
+    GroupBy(columns ...string) QueryBuilder
+    Having(condition string, args ...any) QueryBuilder
+    Get(ctx context.Context, dest any) error
+    First(ctx context.Context, dest any) error
+    Count(ctx context.Context) (int64, error)
+    Exists(ctx context.Context) (bool, error)
 }
 ```
 
@@ -468,16 +494,41 @@ type Database interface {
 
 ```go
 type Cache interface {
-    Name() string
-    Type() string
-    Initialize(config any) error
-    Health() error
-    Close() error
-    
-    Get(ctx context.Context, key string) ([]byte, error)
+    // Basic operations
+    Get(ctx context.Context, key string, dest any) error
     Set(ctx context.Context, key string, value any, ttl time.Duration) error
     Delete(ctx context.Context, key string) error
     Exists(ctx context.Context, key string) (bool, error)
+    
+    // Multiple keys
+    GetMany(ctx context.Context, keys []string) (map[string]any, error)
+    SetMany(ctx context.Context, items map[string]any, ttl time.Duration) error
+    DeleteMany(ctx context.Context, keys ...string) error
+    
+    // Atomic operations
+    Increment(ctx context.Context, key string, delta int64) (int64, error)
+    Decrement(ctx context.Context, key string, delta int64) (int64, error)
+    
+    // TTL management
+    Expire(ctx context.Context, key string, ttl time.Duration) error
+    TTL(ctx context.Context, key string) (time.Duration, error)
+    
+    // Pattern operations
+    Keys(ctx context.Context, pattern string) ([]string, error)
+    Flush(ctx context.Context) error
+    
+    // Distributed lock
+    Lock(ctx context.Context, key string, ttl time.Duration) (Lock, error)
+    
+    // Remember pattern - get from cache or compute
+    Remember(ctx context.Context, key string, ttl time.Duration, fn func() (any, error), dest any) error
+    
+    // Tags for cache invalidation
+    Tags(tags ...string) TaggedCache
+    
+    // Connection
+    Ping(ctx context.Context) error
+    Close() error
 }
 ```
 
@@ -498,14 +549,34 @@ type Logger interface {
 
 ```go
 type Broker interface {
-    Name() string
+    // Publishing
+    Publish(ctx context.Context, topic string, msg *BrokerMessage) error
+    PublishBatch(ctx context.Context, topic string, msgs []*BrokerMessage) error
+    
+    // Subscribing
+    Subscribe(ctx context.Context, topic string, handler MessageHandlerFunc) error
+    SubscribeMultiple(ctx context.Context, topics []string, handler MessageHandlerFunc) error
+    Unsubscribe(topic string) error
+    
+    // Consumer Group (load balancing across instances)
+    ConsumeGroup(ctx context.Context, group string, topics []string, handler MessageHandlerFunc) error
+    LeaveGroup(group string) error
+    
+    // Queue operations
+    QueueLength(ctx context.Context, queue string) (int64, error)
+    
+    // Acknowledge messages (for explicit ack brokers)
+    Ack(ctx context.Context, msg *BrokerMessage) error
+    Nack(ctx context.Context, msg *BrokerMessage, requeue bool) error
+    
+    // Connection management
     Connect(ctx context.Context) error
     Disconnect(ctx context.Context) error
-    Health() error
+    Ping(ctx context.Context) error
+    IsConnected() bool
     
-    Publish(ctx context.Context, topic string, msg *BrokerMessage) error
-    Subscribe(ctx context.Context, topic string, handler MessageHandlerFunc) error
-    Unsubscribe(topic string) error
+    // Info
+    Name() string
 }
 
 type MessageHandlerFunc func(ctx context.Context, msg *BrokerMessage) error
@@ -515,10 +586,18 @@ type MessageHandlerFunc func(ctx context.Context, msg *BrokerMessage) error
 
 ```go
 type Metrics interface {
-    Counter(name string, labels ...string) Counter
-    Gauge(name string, labels ...string) Gauge
-    Histogram(name string, buckets []float64, labels ...string) Histogram
-    Summary(name string, objectives map[float64]float64, labels ...string) Summary
+    Counter(name string, tags ...Tag) Counter
+    Gauge(name string, tags ...Tag) Gauge
+    Histogram(name string, tags ...Tag) Histogram
+    Timer(name string, tags ...Tag) Timer
+    WithTags(tags ...Tag) Metrics
+    Handler() any
+    Close() error
+}
+
+type Tag struct {
+    Key   string
+    Value string
 }
 ```
 
@@ -526,17 +605,21 @@ type Metrics interface {
 
 ```go
 type Tracer interface {
-    StartSpan(name string, opts ...SpanOption) Span
-    Extract(carrier any) SpanContext
-    Inject(ctx SpanContext, carrier any)
+    Start(ctx context.Context, name string, opts ...SpanOption) (context.Context, Span)
+    Extract(ctx context.Context, carrier Carrier) context.Context
+    Inject(ctx context.Context, carrier Carrier) error
+    Close() error
 }
 
 type Span interface {
     End()
-    SetAttribute(key string, value any)
+    SetName(name string)
+    SetStatus(code SpanStatus, message string)
+    SetAttributes(attrs ...Attribute)
     RecordError(err error)
-    AddEvent(name string, attrs ...any)
-    Context() SpanContext
+    AddEvent(name string, attrs ...Attribute)
+    SpanContext() SpanContext
+    IsRecording() bool
 }
 ```
 
@@ -569,12 +652,6 @@ const (
 ```
 
 ## Functions
-
-### Version
-
-```go
-func Version() string // Returns "0.1.0"
-```
 
 ### Security Context
 

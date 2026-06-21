@@ -14,8 +14,9 @@ import (
     "log"
     "time"
 
-    "github.com/madcok-co/unicorn/core"
-    "github.com/madcok-co/unicorn/pkg/adapters/http"
+    httpAdapter "github.com/madcok-co/unicorn/core/pkg/adapters/http"
+    "github.com/madcok-co/unicorn/core/pkg/app"
+    "github.com/madcok-co/unicorn/core/pkg/context"
 )
 
 // DTOs
@@ -40,7 +41,7 @@ type UpdateUserRequest struct {
 var users = make(map[string]*User)
 
 // Handlers
-func CreateUser(ctx *unicorn.Context, req CreateUserRequest) (*User, error) {
+func CreateUser(ctx *context.Context, req CreateUserRequest) (*User, error) {
     user := &User{
         ID:        "user-" + time.Now().Format("20060102150405"),
         Name:      req.Name,
@@ -53,11 +54,11 @@ func CreateUser(ctx *unicorn.Context, req CreateUserRequest) (*User, error) {
     return user, nil
 }
 
-func GetUser(ctx *unicorn.Context) (*User, error) {
+func GetUser(ctx *context.Context) (*User, error) {
     id := ctx.Request().Params["id"]
     user, ok := users[id]
     if !ok {
-        return nil, &http.HTTPError{
+        return nil, &httpAdapter.HTTPError{
             StatusCode: 404,
             Message:    "User not found",
         }
@@ -65,7 +66,7 @@ func GetUser(ctx *unicorn.Context) (*User, error) {
     return user, nil
 }
 
-func ListUsers(ctx *unicorn.Context) ([]*User, error) {
+func ListUsers(ctx *context.Context) ([]*User, error) {
     result := make([]*User, 0, len(users))
     for _, u := range users {
         result = append(result, u)
@@ -73,11 +74,11 @@ func ListUsers(ctx *unicorn.Context) ([]*User, error) {
     return result, nil
 }
 
-func UpdateUser(ctx *unicorn.Context, req UpdateUserRequest) (*User, error) {
+func UpdateUser(ctx *context.Context, req UpdateUserRequest) (*User, error) {
     id := ctx.Request().Params["id"]
     user, ok := users[id]
     if !ok {
-        return nil, &http.HTTPError{StatusCode: 404, Message: "User not found"}
+        return nil, &httpAdapter.HTTPError{StatusCode: 404, Message: "User not found"}
     }
     
     if req.Name != "" {
@@ -90,41 +91,41 @@ func UpdateUser(ctx *unicorn.Context, req UpdateUserRequest) (*User, error) {
     return user, nil
 }
 
-func DeleteUser(ctx *unicorn.Context) (map[string]string, error) {
+func DeleteUser(ctx *context.Context) (map[string]string, error) {
     id := ctx.Request().Params["id"]
     if _, ok := users[id]; !ok {
-        return nil, &http.HTTPError{StatusCode: 404, Message: "User not found"}
+        return nil, &httpAdapter.HTTPError{StatusCode: 404, Message: "User not found"}
     }
     
     delete(users, id)
     return map[string]string{"message": "User deleted"}, nil
 }
 
-func HealthCheck(ctx *unicorn.Context) (map[string]string, error) {
+func HealthCheck(ctx *context.Context) (map[string]string, error) {
     return map[string]string{"status": "healthy"}, nil
 }
 
 func main() {
-    app := unicorn.New(&unicorn.Config{
+    application := app.New(&app.Config{
         Name:       "user-api",
         Version:    "1.0.0",
         EnableHTTP: true,
-        HTTP: &unicorn.HTTPConfig{
+        HTTP: &httpAdapter.Config{
             Host: "0.0.0.0",
             Port: 8080,
         },
     })
 
     // Register routes
-    app.RegisterHandler(HealthCheck).HTTP("GET", "/health").Done()
-    app.RegisterHandler(CreateUser).HTTP("POST", "/users").Done()
-    app.RegisterHandler(ListUsers).HTTP("GET", "/users").Done()
-    app.RegisterHandler(GetUser).HTTP("GET", "/users/:id").Done()
-    app.RegisterHandler(UpdateUser).HTTP("PUT", "/users/:id").Done()
-    app.RegisterHandler(DeleteUser).HTTP("DELETE", "/users/:id").Done()
+    application.RegisterHandler(HealthCheck).HTTP("GET", "/health").Done()
+    application.RegisterHandler(CreateUser).HTTP("POST", "/users").Done()
+    application.RegisterHandler(ListUsers).HTTP("GET", "/users").Done()
+    application.RegisterHandler(GetUser).HTTP("GET", "/users/:id").Done()
+    application.RegisterHandler(UpdateUser).HTTP("PUT", "/users/:id").Done()
+    application.RegisterHandler(DeleteUser).HTTP("DELETE", "/users/:id").Done()
 
     log.Println("Starting server on :8080")
-    if err := app.Start(); err != nil {
+    if err := application.Start(); err != nil {
         log.Fatal(err)
     }
 }
@@ -264,29 +265,29 @@ func main() {
         RefreshTokenExpiry: 7 * 24 * time.Hour,
     })
 
-    app := unicorn.New(&unicorn.Config{
+    application := app.New(&app.Config{
         Name:       "auth-api",
         EnableHTTP: true,
-        HTTP:       &unicorn.HTTPConfig{Port: 8080},
+        HTTP:       &httpAdapter.Config{Port: 8080},
     })
 
     // Public routes
-    app.RegisterHandler(Login).HTTP("POST", "/auth/login").Done()
-    app.RegisterHandler(RefreshToken).HTTP("POST", "/auth/refresh").Done()
+    application.RegisterHandler(Login).HTTP("POST", "/auth/login").Done()
+    application.RegisterHandler(RefreshToken).HTTP("POST", "/auth/refresh").Done()
     
     // Protected routes
-    app.RegisterHandler(GetProfile).
+    application.RegisterHandler(GetProfile).
         Use(authMiddleware).
         HTTP("GET", "/profile").
         Done()
     
-    app.RegisterHandler(Logout).
+    application.RegisterHandler(Logout).
         Use(authMiddleware).
         HTTP("POST", "/auth/logout").
         Done()
 
     log.Println("Auth API starting on :8080")
-    app.Start()
+    application.Start()
 }
 ```
 
@@ -301,14 +302,16 @@ import (
     "log"
     "time"
 
+    httpAdapter "github.com/madcok-co/unicorn/core/pkg/adapters/http"
+    "github.com/madcok-co/unicorn/core/pkg/app"
+    "github.com/madcok-co/unicorn/core/pkg/context"
     "github.com/madcok-co/unicorn/core"
-    "github.com/madcok-co/unicorn/pkg/adapters/http"
 )
 
 var rateLimiter *unicorn.InMemoryRateLimiter
 
-func rateLimitMiddleware(next unicorn.HandlerExecutor) unicorn.HandlerExecutor {
-    return func(ctx *unicorn.Context) error {
+func rateLimitMiddleware(next context.HandlerFunc) context.HandlerFunc {
+    return func(ctx *context.Context) error {
         // Use IP as rate limit key
         ip := ctx.Request().Headers["X-Forwarded-For"]
         if ip == "" {
@@ -322,7 +325,7 @@ func rateLimitMiddleware(next unicorn.HandlerExecutor) unicorn.HandlerExecutor {
         
         if !allowed {
             remaining, _ := rateLimiter.Remaining(ctx.Context(), ip)
-            return &http.HTTPError{
+            return &httpAdapter.HTTPError{
                 StatusCode: 429,
                 Message:    "Rate limit exceeded",
                 Internal:   nil,
@@ -333,7 +336,7 @@ func rateLimitMiddleware(next unicorn.HandlerExecutor) unicorn.HandlerExecutor {
     }
 }
 
-func ExpensiveOperation(ctx *unicorn.Context) (map[string]string, error) {
+func ExpensiveOperation(ctx *context.Context) (map[string]string, error) {
     time.Sleep(100 * time.Millisecond) // Simulate work
     return map[string]string{"result": "success"}, nil
 }
@@ -347,19 +350,19 @@ func main() {
         CleanupInterval: 5 * time.Minute,
     })
 
-    app := unicorn.New(&unicorn.Config{
+    application := app.New(&app.Config{
         Name:       "rate-limited-api",
         EnableHTTP: true,
-        HTTP:       &unicorn.HTTPConfig{Port: 8080},
+        HTTP:       &httpAdapter.Config{Port: 8080},
     })
 
-    app.RegisterHandler(ExpensiveOperation).
+    application.RegisterHandler(ExpensiveOperation).
         Use(rateLimitMiddleware).
         HTTP("POST", "/expensive").
         Done()
 
     log.Println("Rate limited API on :8080")
-    app.Start()
+    application.Start()
 }
 ```
 
@@ -376,6 +379,7 @@ import (
     "log"
     "strings"
 
+    "github.com/madcok-co/unicorn/core/pkg/app"
     "github.com/madcok-co/unicorn/core"
 )
 
@@ -440,14 +444,14 @@ func main() {
     port := flag.Int("port", 8080, "HTTP port")
     flag.Parse()
 
-    app := unicorn.New(&unicorn.Config{
+    application := app.New(&app.Config{
         Name:       "multiservice-app",
         EnableHTTP: true,
-        HTTP:       &unicorn.HTTPConfig{Port: *port},
+        HTTP:       &httpAdapter.Config{Port: *port},
     })
 
     // User Service
-    app.Service("user-service").
+    application.Service("user-service").
         Describe("User management").
         OnStart(func(ctx context.Context) error {
             log.Println("[user-service] Starting")
@@ -457,7 +461,7 @@ func main() {
         Register(GetUser).HTTP("GET", "/users/:id").Done()
 
     // Order Service
-    app.Service("order-service").
+    application.Service("order-service").
         Describe("Order processing").
         DependsOn("user-service").
         OnStart(func(ctx context.Context) error {
@@ -468,7 +472,7 @@ func main() {
         Register(GetOrder).HTTP("GET", "/orders/:id").Done()
 
     // Notification Service
-    app.Service("notification-service").
+    application.Service("notification-service").
         Describe("Send notifications").
         Register(SendNotification).HTTP("POST", "/notifications").Done()
 
@@ -481,10 +485,10 @@ func main() {
     log.Printf("Starting on :%d", *port)
     if len(servicesToRun) > 0 {
         log.Printf("Running services: %v", servicesToRun)
-        app.RunServices(servicesToRun...)
+        application.RunServices(servicesToRun...)
     } else {
         log.Println("Running all services")
-        app.Start()
+        application.Start()
     }
 }
 ```
@@ -512,8 +516,10 @@ import (
     "context"
     "log"
 
-    "github.com/madcok-co/unicorn/core"
-    brokerMem "github.com/madcok-co/unicorn/pkg/adapters/broker/memory"
+    brokerMem "github.com/madcok-co/unicorn/core/pkg/adapters/broker/memory"
+    "github.com/madcok-co/unicorn/core/pkg/app"
+    "github.com/madcok-co/unicorn/core/pkg/context"
+    "github.com/madcok-co/unicorn/core/pkg/contracts"
 )
 
 type OrderCreatedEvent struct {
@@ -534,7 +540,7 @@ type Order struct {
 }
 
 // HTTP Handler - creates order and publishes event
-func CreateOrder(ctx *unicorn.Context, req CreateOrderRequest) (*Order, error) {
+func CreateOrder(ctx *context.Context, req CreateOrderRequest) (*Order, error) {
     order := &Order{
         ID:     "order-123",
         UserID: req.UserID,
@@ -550,7 +556,7 @@ func CreateOrder(ctx *unicorn.Context, req CreateOrderRequest) (*Order, error) {
             Total:   order.Total,
         }
         
-        broker.Publish(ctx.Context(), "order.created", &unicorn.BrokerMessage{
+        broker.Publish(ctx.Context(), "order.created", &contracts.BrokerMessage{
             Key:  []byte(order.ID),
             Body: mustJSON(event),
         })
@@ -560,7 +566,7 @@ func CreateOrder(ctx *unicorn.Context, req CreateOrderRequest) (*Order, error) {
 }
 
 // Message Handler - processes order events
-func ProcessOrderEvent(ctx *unicorn.Context, event OrderCreatedEvent) error {
+func ProcessOrderEvent(ctx *context.Context, event OrderCreatedEvent) error {
     log.Printf("Processing order: %s for user: %s, total: %.2f",
         event.OrderID, event.UserID, event.Total)
     
@@ -569,7 +575,7 @@ func ProcessOrderEvent(ctx *unicorn.Context, event OrderCreatedEvent) error {
 }
 
 // Message Handler - sends notification on order
-func SendOrderNotification(ctx *unicorn.Context, event OrderCreatedEvent) error {
+func SendOrderNotification(ctx *context.Context, event OrderCreatedEvent) error {
     log.Printf("Sending notification for order: %s to user: %s",
         event.OrderID, event.UserID)
     return nil
@@ -580,31 +586,31 @@ func main() {
     broker := brokerMem.New()
     broker.Connect(context.Background())
 
-    app := unicorn.New(&unicorn.Config{
+    application := app.New(&app.Config{
         Name:         "event-driven-app",
         EnableHTTP:   true,
         EnableBroker: true,
-        HTTP:         &unicorn.HTTPConfig{Port: 8080},
+        HTTP:         &httpAdapter.Config{Port: 8080},
     })
     
-    app.SetBroker(broker)
+    application.SetBroker(broker)
 
     // HTTP endpoint to create orders
-    app.RegisterHandler(CreateOrder).
+    application.RegisterHandler(CreateOrder).
         HTTP("POST", "/orders").
         Done()
 
     // Message handlers for order.created topic
-    app.RegisterHandler(ProcessOrderEvent).
+    application.RegisterHandler(ProcessOrderEvent).
         Message("order.created").
         Done()
 
-    app.RegisterHandler(SendOrderNotification).
+    application.RegisterHandler(SendOrderNotification).
         Message("order.created").
         Done()
 
     log.Println("Event-driven app on :8080")
-    app.Start()
+    application.Start()
 }
 
 func mustJSON(v any) []byte {
@@ -624,8 +630,10 @@ import (
     "log"
     "time"
 
+    httpAdapter "github.com/madcok-co/unicorn/core/pkg/adapters/http"
+    "github.com/madcok-co/unicorn/core/pkg/app"
+    "github.com/madcok-co/unicorn/core/pkg/context"
     "github.com/madcok-co/unicorn/core"
-    "github.com/madcok-co/unicorn/pkg/adapters/http"
 )
 
 var (
@@ -664,10 +672,10 @@ type StoredUser struct {
 }
 
 // Handlers
-func Register(ctx *unicorn.Context, req RegisterRequest) (*AuthResponse, error) {
+func Register(ctx *context.Context, req RegisterRequest) (*AuthResponse, error) {
     // Check if user exists
     if _, exists := users[req.Email]; exists {
-        return nil, &http.HTTPError{StatusCode: 409, Message: "User already exists"}
+        return nil, &httpAdapter.HTTPError{StatusCode: 409, Message: "User already exists"}
     }
     
     // Hash password
@@ -714,7 +722,7 @@ func Register(ctx *unicorn.Context, req RegisterRequest) (*AuthResponse, error) 
     }, nil
 }
 
-func Login(ctx *unicorn.Context, req LoginRequest) (*AuthResponse, error) {
+func Login(ctx *context.Context, req LoginRequest) (*AuthResponse, error) {
     user, exists := users[req.Email]
     if !exists {
         auditLogger.Log(ctx.Context(), unicorn.NewAuditEvent().
@@ -723,12 +731,12 @@ func Login(ctx *unicorn.Context, req LoginRequest) (*AuthResponse, error) {
             Success(false).
             WithError(nil).
             Build())
-        return nil, &http.HTTPError{StatusCode: 401, Message: "Invalid credentials"}
+        return nil, &httpAdapter.HTTPError{StatusCode: 401, Message: "Invalid credentials"}
     }
     
     // Verify password
     if !hasher.Verify([]byte(req.Password), user.PasswordHash) {
-        return nil, &http.HTTPError{StatusCode: 401, Message: "Invalid credentials"}
+        return nil, &httpAdapter.HTTPError{StatusCode: 401, Message: "Invalid credentials"}
     }
     
     // Generate tokens
@@ -758,7 +766,7 @@ func Login(ctx *unicorn.Context, req LoginRequest) (*AuthResponse, error) {
     }, nil
 }
 
-func GetProfile(ctx *unicorn.Context) (map[string]any, error) {
+func GetProfile(ctx *context.Context) (map[string]any, error) {
     identity := ctx.Identity()
     return map[string]any{
         "id":    identity.ID,
@@ -768,17 +776,17 @@ func GetProfile(ctx *unicorn.Context) (map[string]any, error) {
 }
 
 // Middleware
-func authMiddleware(next unicorn.HandlerExecutor) unicorn.HandlerExecutor {
-    return func(ctx *unicorn.Context) error {
+func authMiddleware(next context.HandlerFunc) context.HandlerFunc {
+    return func(ctx *context.Context) error {
         auth := ctx.Request().Headers["Authorization"]
         if len(auth) < 8 {
-            return &http.HTTPError{StatusCode: 401, Message: "Missing token"}
+            return &httpAdapter.HTTPError{StatusCode: 401, Message: "Missing token"}
         }
         
         token := auth[7:] // Remove "Bearer "
         identity, err := jwtAuth.Validate(ctx.Context(), token)
         if err != nil {
-            return &http.HTTPError{StatusCode: 401, Message: "Invalid token"}
+            return &httpAdapter.HTTPError{StatusCode: 401, Message: "Invalid token"}
         }
         
         ctx.SetIdentity(identity)
@@ -786,8 +794,8 @@ func authMiddleware(next unicorn.HandlerExecutor) unicorn.HandlerExecutor {
     }
 }
 
-func rateLimitMiddleware(next unicorn.HandlerExecutor) unicorn.HandlerExecutor {
-    return func(ctx *unicorn.Context) error {
+func rateLimitMiddleware(next context.HandlerFunc) context.HandlerFunc {
+    return func(ctx *context.Context) error {
         ip := ctx.Request().Headers["X-Forwarded-For"]
         if ip == "" {
             ip = "unknown"
@@ -795,7 +803,7 @@ func rateLimitMiddleware(next unicorn.HandlerExecutor) unicorn.HandlerExecutor {
         
         allowed, _ := rateLimiter.Allow(ctx.Context(), ip)
         if !allowed {
-            return &http.HTTPError{StatusCode: 429, Message: "Too many requests"}
+            return &httpAdapter.HTTPError{StatusCode: 429, Message: "Too many requests"}
         }
         
         return next(ctx)
@@ -828,31 +836,31 @@ func main() {
     
     hasher = unicorn.NewBcryptHasher(unicorn.BcryptConfig{Cost: 12})
 
-    app := unicorn.New(&unicorn.Config{
+    application := app.New(&app.Config{
         Name:       "secure-app",
         EnableHTTP: true,
-        HTTP:       &unicorn.HTTPConfig{Port: 8080},
+        HTTP:       &httpAdapter.Config{Port: 8080},
     })
 
     // Public routes (with rate limiting)
-    app.RegisterHandler(Register).
+    application.RegisterHandler(Register).
         Use(rateLimitMiddleware).
         HTTP("POST", "/auth/register").
         Done()
 
-    app.RegisterHandler(Login).
+    application.RegisterHandler(Login).
         Use(rateLimitMiddleware).
         HTTP("POST", "/auth/login").
         Done()
 
     // Protected routes
-    app.RegisterHandler(GetProfile).
+    application.RegisterHandler(GetProfile).
         Use(rateLimitMiddleware, authMiddleware).
         HTTP("GET", "/profile").
         Done()
 
     log.Println("Secure API on :8080")
-    app.Start()
+    application.Start()
 }
 ```
 
@@ -865,7 +873,7 @@ import (
     "testing"
     
     "github.com/stretchr/testify/assert"
-    "github.com/madcok-co/unicorn/core"
+    "github.com/madcok-co/unicorn/core/pkg/context"
 )
 
 func TestCreateUser(t *testing.T) {
@@ -893,7 +901,7 @@ func TestCreateUser(t *testing.T) {
     
     for _, tt := range tests {
         t.Run(tt.name, func(t *testing.T) {
-            ctx := unicorn.NewTestContext()
+            ctx := context.New(context.Background())
             
             user, err := CreateUser(ctx, tt.request)
             
@@ -979,7 +987,7 @@ type PaymentRequest struct {
     Amount float64 `json:"amount"`
 }
 
-func ProcessPayment(ctx *unicorn.Context, req PaymentRequest) (*map[string]string, error) {
+func ProcessPayment(ctx *context.Context, req PaymentRequest) (*map[string]string, error) {
     gateway := ctx.Get("payment_gateway").(*PaymentGateway)
     
     if err := gateway.Charge(ctx.Context(), req.Amount); err != nil {
@@ -993,8 +1001,8 @@ func ProcessPayment(ctx *unicorn.Context, req PaymentRequest) (*map[string]strin
 }
 
 // Health check with dependency checks
-func setupHealthChecks(app *unicorn.App) {
-    health := middleware.NewHealthChecker()
+func setupHealthChecks(application *app.App) {
+    health := middleware.NewHealthHandler()
     
     // Database check
     health.AddCheck("database", func(ctx context.Context) error {
@@ -1021,34 +1029,33 @@ func setupHealthChecks(app *unicorn.App) {
 }
 
 func main() {
-    app := unicorn.New(&unicorn.Config{
+    application := app.New(&app.Config{
         Name:       "payment-service",
         EnableHTTP: true,
     })
     
-    // Production middleware stack
-    app.Use(middleware.Recovery())
-    app.Use(middleware.CORS(middleware.CORSConfig{
-        AllowOrigins: []string{"*"},
-    }))
-    app.Use(middleware.Timeout(30 * time.Second))
-    app.Use(middleware.RateLimit(middleware.RateLimitConfig{
-        Max:      100,
-        Duration: time.Minute,
-    }))
+    // Production middleware applied at handler level
+    application.RegisterHandler(ProcessPayment).
+        Use(middleware.Recovery()).
+        Use(middleware.CORS(middleware.CORSConfig{
+            AllowOrigins: []string{"*"},
+        })).
+        Use(middleware.Timeout(30 * time.Second)).
+        Use(middleware.RateLimit(middleware.RateLimitConfig{
+            Max:      100,
+            Duration: time.Minute,
+        })).
+        HTTP("POST", "/payments").
+        Done()
     
     // Inject payment gateway with circuit breaker
     gateway := NewPaymentGateway("https://api.payment.com")
-    app.Set("payment_gateway", gateway)
+    application.Set("payment_gateway", gateway)
     
     // Setup health checks
-    setupHealthChecks(app)
+    setupHealthChecks(application)
     
-    // Register handlers
-    app.RegisterHandler(ProcessPayment).
-        HTTP("POST", "/payments").Done()
-    
-    app.Start()
+    application.Start()
 }
 ```
 

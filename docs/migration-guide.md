@@ -77,9 +77,14 @@ app.SetDB(&existingDBBridge{raw: db})
 ### 1b. Run Unicorn on a Separate Port
 
 ```go
+import (
+    "github.com/madcok-co/unicorn/core/pkg/app"
+    httpAdapter "github.com/madcok-co/unicorn/core/pkg/adapters/http"
+)
+
 func main() {
     // Unicorn app on port 8081
-    unicornApp := unicorn.New(&unicorn.Config{
+    unicornApp := app.New(&app.Config{
         Name:       "migrated-service",
         EnableHTTP: true,
         HTTP:       &httpAdapter.Config{Port: 8081},
@@ -123,7 +128,7 @@ func GetUser(c *gin.Context) {
 }
 
 // Unicorn
-func GetUser(ctx *unicorn.Context, req GetUserRequest) (*User, error) {
+func GetUser(ctx *context.Context, req GetUserRequest) (*User, error) {
     var user User
     ctx.DB().FindByID(ctx.Context(), req.ID, &user)
     return &user, nil
@@ -144,7 +149,7 @@ func GetUser(c echo.Context) error {
 }
 
 // Unicorn
-func GetUser(ctx *unicorn.Context, req GetUserRequest) (*User, error) {
+func GetUser(ctx *context.Context, req GetUserRequest) (*User, error) {
     // req.ID is automatically populated from the path parameter
     return &User{ID: req.ID}, nil
 }
@@ -160,7 +165,7 @@ func GetUser(w http.ResponseWriter, r *http.Request) {
 }
 
 // Unicorn
-func GetUser(ctx *unicorn.Context, req GetUserRequest) (*User, error) {
+func GetUser(ctx *context.Context, req GetUserRequest) (*User, error) {
     ctx.DB().FindByID(ctx.Context(), req.ID, &user)
     return user, nil
 }
@@ -281,20 +286,20 @@ After all handlers are migrated:
 ```go
 // Final: only Unicorn, no more old service
 func main() {
-    app := unicorn.New(&unicorn.Config{
+    application := app.New(&app.Config{
         Name:       "fully-migrated",
         EnableHTTP: true,
         HTTP:       &httpAdapter.Config{Port: 8080}, // ← primary port
     })
 
     // All migrated handlers
-    app.RegisterHandler(GetUser).HTTP("GET", "/users/:id").Done()
-    app.RegisterHandler(CreateUser).HTTP("POST", "/users").Done()
-    app.RegisterHandler(ListUsers).HTTP("GET", "/users").Done()
-    app.RegisterHandler(CreateOrder).HTTP("POST", "/orders").Done()
-    app.RegisterHandler(GetOrder).HTTP("GET", "/orders/:id").Done()
+    application.RegisterHandler(GetUser).HTTP("GET", "/users/:id").Done()
+    application.RegisterHandler(CreateUser).HTTP("POST", "/users").Done()
+    application.RegisterHandler(ListUsers).HTTP("GET", "/users").Done()
+    application.RegisterHandler(CreateOrder).HTTP("POST", "/orders").Done()
+    application.RegisterHandler(GetOrder).HTTP("GET", "/orders/:id").Done()
 
-    app.Start()
+    application.Start()
 }
 ```
 

@@ -470,18 +470,13 @@ JWT, API Key, Basic Auth, Rate Limiting, and CORS:
 
 ```go
 // JWT Authentication
-app.Use(auth.JWT(auth.JWTConfig{
-    Secret: []byte("your-secret"),
-}))
+handler.Use(middleware.JWT([]byte("your-secret")))
 
 // Rate Limiting (Memory or Redis)
-app.Use(ratelimit.New(ratelimit.Config{
-    Max:      100,
-    Duration: time.Minute,
-}))
+handler.Use(middleware.RateLimit(100, time.Minute))
 
 // CORS
-app.Use(cors.New(cors.Config{
+handler.Use(middleware.CORSWithConfig(&middleware.CORSConfig{
     AllowOrigins: []string{"https://example.com"},
 }))
 ```
@@ -491,12 +486,19 @@ app.Use(cors.New(cors.Config{
 Built-in liveness and readiness probes:
 
 ```go
-health := middleware.NewHealthChecker()
+health := middleware.NewHealthHandler(&middleware.HealthConfig{
+    LivenessPath:  "/health/live",
+    ReadinessPath: "/health/ready",
+})
 health.AddCheck("database", dbChecker)
 health.AddCheck("redis", redisChecker)
 
-app.GET("/health/live", health.LivenessHandler())
-app.GET("/health/ready", health.ReadinessHandler())
+app.RegisterHandler(health.LivenessHandler()).
+    HTTP("GET", "/health/live").
+    Done()
+app.RegisterHandler(health.ReadinessHandler()).
+    HTTP("GET", "/health/ready").
+    Done()
 ```
 
 ## Migration Guide

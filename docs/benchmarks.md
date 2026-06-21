@@ -231,6 +231,9 @@ Fields are ordered by access frequency and alignment:
 
 ## Comparison with Other Frameworks
 
+> **Note:** Framework comparison numbers are estimates based on published benchmarks.
+> Actual results vary by hardware, workload, and benchmark methodology.
+
 | Framework | Context Overhead | Allocs | Notes |
 |-----------|----------------|--------|-------|
 | **Unicorn** | **36.94 ns** | **0 B/op** | Object pooling + lazy injection |
