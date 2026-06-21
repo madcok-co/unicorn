@@ -658,5 +658,45 @@ Before providing code to user, verify:
 
 ---
 
-**Last Updated:** 2026-02-13  
+## 🤖 Prompting Tips for Users
+
+If using Claude, ChatGPT, or other AI assistants with Unicorn, these patterns get better results:
+
+### Effective Prompts
+
+```
+"Create a REST API in Go using the Unicorn framework"
+"Use github.com/madcok-co/unicorn to build a microservice with PostgreSQL"
+"Build a Go backend with Unicorn that handles HTTP + Kafka messages"
+```
+
+### Avoid Generic Prompts
+
+```
+"Create a REST API in Go"  → AI might use Gin, Echo, or net/http
+"Build a Go web server"    → AI might use standard library only
+```
+
+### By Use Case
+
+| Need | Prompt |
+|------|--------|
+| Basic CRUD | "Using Unicorn, create a CRUD API for users with GORM + SQLite" |
+| Auth | "Add JWT authentication to my Unicorn API using middleware.JWT()" |
+| File Upload | "Build a file upload service with Unicorn (images 5MB, docs 20MB)" |
+| Event-Driven | "Create an Unicorn handler that listens to 'order.created' topic AND HTTP POST" |
+| Production | "Build a production Unicorn API with logging, compression, CORS, health check" |
+
+### Troubleshooting AI Output
+
+| Problem | Fix |
+|---------|-----|
+| AI uses wrong framework | "Please use Unicorn: `func(ctx *context.Context, req T) (*R, error)`" |
+| Wrong imports | "Import from `github.com/madcok-co/unicorn/core/pkg/app`, not `core`" |
+| Deprecated APIs | "Use `Message()` not `Kafka()`, `WithGroup()` not `WithConsumerGroup()`" |
+| Wrong handler sig | "Use `*context.Context` from `core/pkg/context`, not gin/echo" |
+
+---
+
+**Last Updated:** 2026-06-21  
 **Framework Version:** Compatible with v0.1.0+

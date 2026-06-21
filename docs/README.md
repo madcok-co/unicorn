@@ -27,10 +27,11 @@ Unicorn is a batteries-included Go framework where developers only need to focus
 
 ### Reference
 12. [API Reference](./api-reference.md) - Complete API documentation
-13. [Benchmarks](./benchmarks.md) - Performance benchmarks
-14. [Framework Comparison](./comparison.md) - vs Gin, Echo, Fiber, etc.
-15. [Best Practices](./best-practices.md) - Production recommendations
-16. [Examples](./examples.md) - Complete example applications
+13. [Performance Guide](./PERFORMANCE.md) - Optimization, benchmarking, FAQ
+14. [Benchmarks](./benchmarks.md) - Performance benchmark results
+15. [Framework Comparison](./comparison.md) - vs Gin, Echo, Fiber, etc.
+16. [Best Practices](./best-practices.md) - Production recommendations
+17. [Examples](./examples.md) - Complete example applications
 
 ## Quick Start
 

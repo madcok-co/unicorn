@@ -816,3 +816,31 @@ Unicorn framework provides **production-grade performance** through:
 - Resource-constrained environments
 
 For most applications, these optimizations provide **significant headroom** and allow you to focus on business logic rather than performance tuning.
+
+---
+
+## ❓ FAQ
+
+### Q: Do I need to enable ultra-low latency features?
+**A: No!** All performance features are automatic and enabled by default.
+
+### Q: How do I know if pooling is working?
+**A:** Run `go test -bench=BenchmarkContextAcquire -benchmem` in `core/pkg/context`. You should see `0 allocs/op`.
+
+### Q: Does pooling work with goroutines?
+**A: Yes!** `sync.Pool` is thread-safe. Each goroutine can acquire its own context.
+
+### Q: What happens if I forget to call Release()?
+**A: Memory leak.** The context won't return to the pool. Always use `defer ctx.Release()`.
+
+### Q: How does this compare to fasthttp/Fiber?
+**A:** Comparable performance (~38ns vs ~50ns), but Unicorn uses standard `net/http` → better HTTP/2, middleware ecosystem compatibility.
+
+### Q: Can I use this in production?
+**A: Yes!** `sync.Pool` is Go standard library, battle-tested, thread-safe.
+
+### Q: How do I monitor performance in production?
+**A:** Use the ManagementServer sidecar (`contrib/sidecar/management`) on port 9090 for pprof, Prometheus metrics, and health checks.
+
+### Q: Is there a performance checklist?
+**A:** Framework handles: pooling, pre-allocation, lazy injection, zero allocs. Your code: pre-size slices, batch operations, connection pools, profile regularly.
