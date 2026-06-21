@@ -2,7 +2,7 @@
 
 A batteries-included Go framework where developers only need to focus on business logic.
 
-[![Go Version](https://img.shields.io/badge/Go-1.21+-00ADD8?style=flat&logo=go)](https://go.dev)
+[![Go Version](https://img.shields.io/badge/Go-1.24+-00ADD8?style=flat&logo=go)](https://go.dev)
 [![License](https://img.shields.io/badge/License-MIT-blue.svg)](LICENSE)
 
 ## Features
@@ -42,6 +42,11 @@ github.com/madcok-co/unicorn/
 │   │   ├── handler/            # Handler registry
 │   │   ├── middleware/         # Production middleware
 │   │   ├── resilience/         # Resilience patterns
+│   │   ├── sidecar/            # Trigger sidecars
+│   │   ├── migration/          # Database migrations
+│   │   ├── transaction/        # Transaction support
+│   │   ├── service/            # Service registry
+│   │   ├── openapi/            # OpenAPI support
 │   │   └── adapters/           # Built-in adapters
 │   ├── cmd/unicorn/            # CLI tool
 │   └── examples/               # Example applications
@@ -57,104 +62,21 @@ github.com/madcok-co/unicorn/
 │   ├── cache/redis/            # Redis cache driver
 │   ├── logger/zap/             # Zap logger driver
 │   ├── broker/kafka/           # Kafka message broker driver
+│   ├── broker/mqtt/            # MQTT broker driver
+│   ├── grpc/                   # gRPC adapter
+│   ├── websocket/              # WebSocket driver
+│   ├── sidecar/management/     # Management server
+│   ├── sidecar/configwatcher/  # Config watcher
+│   ├── sidecar/discovery/      # Service discovery
+│   ├── sidecar/secretrotator/  # Secret rotation
 │   └── validator/playground/   # go-playground/validator driver
 │
 └── docs/                       # Documentation
 ```
 
-## 🤖 AI Assistant Quick Reference
+## 🤖 For AI Assistants
 
-**For Claude, ChatGPT, and other AI assistants helping you build Go APIs:**
-
-This framework is designed to be AI-friendly with clear patterns and comprehensive examples.
-
-### Minimal Working Example (Copy-Paste Ready)
-
-```go
-package main
-
-import (
-    "log"
-    
-    httpAdapter "github.com/madcok-co/unicorn/core/pkg/adapters/http"
-    "github.com/madcok-co/unicorn/core/pkg/app"
-    "github.com/madcok-co/unicorn/core/pkg/context"
-)
-
-type CreateItemRequest struct {
-    Name string `json:"name" validate:"required"`
-}
-
-type Item struct {
-    ID   string `json:"id"`
-    Name string `json:"name"`
-}
-
-func main() {
-    application := app.New(&app.Config{
-        Name:       "my-api",
-        EnableHTTP: true,
-        HTTP:       &httpAdapter.Config{Port: 8080},
-    })
-    
-    application.RegisterHandler(CreateItem).
-        Named("create-item").
-        HTTP("POST", "/items").
-        Done()
-    
-    log.Fatal(application.Start())
-}
-
-func CreateItem(ctx *context.Context, req CreateItemRequest) (*Item, error) {
-    return &Item{ID: "123", Name: req.Name}, nil
-}
-```
-
-### Key Patterns for AI Code Generation
-
-**Handler Signature (Mandatory):**
-```go
-func HandlerName(ctx *context.Context, req RequestType) (*ResponseType, error)
-```
-
-**Import Paths (Critical):**
-```go
-import (
-    "github.com/madcok-co/unicorn/core/pkg/app"
-    "github.com/madcok-co/unicorn/core/pkg/context"
-    httpAdapter "github.com/madcok-co/unicorn/core/pkg/adapters/http"
-)
-```
-
-**Multi-Trigger Support:**
-```go
-// Same handler for HTTP + Message Queue + Cron
-app.RegisterHandler(ProcessOrder).
-    HTTP("POST", "/orders").
-    Message("order.created").  // Use Message(), NOT Kafka()
-    Cron("0 * * * *").
-    Done()
-```
-
-**Common Middleware:**
-```go
-import "github.com/madcok-co/unicorn/core/pkg/middleware"
-
-// Apply middleware at handler level
-application.RegisterHandler(MyHandler).
-    Use(middleware.Recovery()).
-    Use(middleware.RequestResponseLogger(logger)).
-    Use(middleware.Compress()).
-    Use(middleware.CSRF()).
-    Use(middleware.RateLimit(100, time.Minute)).
-    HTTP("GET", "/api/protected").
-    Done()
-```
-
-> 📖 **For AI Assistants:** See [CLAUDE.md](./CLAUDE.md) for comprehensive guidelines  
-> 📖 **For Users:** See [docs/AI_PROMPTS.md](./docs/AI_PROMPTS.md) for effective prompts
-
----
+If you're using Claude, ChatGPT, or Copilot to generate Unicorn code, see [CLAUDE.md](./CLAUDE.md) for the complete AI assistant reference — handler patterns, import paths, middleware, and a code generation checklist.
 
 ## Quick Start
 
@@ -556,121 +478,43 @@ app.RegisterHandler(GetUserV2).HTTP("GET", "/api/v2/users/:id").Done()
 | Cache | Redis | `contrib/cache/redis` |
 | Logger | Zap | `contrib/logger/zap` |
 | Broker | Kafka | `contrib/broker/kafka` |
+| Broker | MQTT | `contrib/broker/mqtt` |
+| RPC | gRPC | `contrib/grpc` |
+| Real-time | WebSocket | `contrib/websocket` |
 | Validator | Playground | `contrib/validator/playground` |
 
 See [contrib/README.md](./contrib/README.md) for full driver documentation.
 
 ## Production-Ready Features
 
-Unicorn comes with comprehensive production-ready features:
+### Middleware
 
-### Middleware & Tools
+| Feature | Package | Description |
+|---------|---------|-------------|
+| Recovery | `middleware` | Panic recovery with stack traces |
+| Timeout | `middleware` | Request timeout control |
+| CORS | `middleware` | Cross-origin resource sharing |
+| Compression | `middleware` | Gzip + Brotli response compression |
+| Logging | `middleware` | Structured request/response logging |
+| CSRF | `middleware` | Cross-site request forgery protection |
+| File Upload | `middleware` | Upload with size/type validation |
+| Rate Limiting | `middleware` | Configurable rate limiting |
+| JWT Auth | `middleware` | JSON Web Token authentication |
+| API Key Auth | `middleware` | API key authentication |
+| Basic Auth | `middleware` | HTTP Basic authentication |
+| Tracing | `middleware` | Distributed tracing support |
+| Metrics | `middleware` | Request metrics collection |
+| Health Check | `middleware` | Health check endpoint |
+| Circuit Breaker | `resilience` | Fault tolerance pattern |
+| Retry | `resilience` | Exponential backoff retry |
 
-Comprehensive middleware and tools available (see `core/pkg/middleware/` and `core/pkg/`):
+### Sidecars
 
-**Request/Response Logging** (`middleware/logger.go`)
-- Auto-masking sensitive data (password, token, api_key, credit_card, etc.)
-- 4 variants: `RequestResponseLogger`, `CompactLogger`, `DetailedLogger`, `AuditLogger`
-- Configurable skip paths, max body size, custom fields
-- 21 tests covering all scenarios
-
-**Response Compression** (`middleware/compress.go`)
-- Gzip and Brotli compression with smart algorithm selection
-- Only compresses when beneficial (checks compressed size < original)
-- Content-type filtering, extension exclusion
-- 15 tests for all compression scenarios
-
-**CSRF Protection** (`middleware/csrf.go`)
-- Token-based protection with constant-time validation
-- Cookie-based storage with configurable security options
-- Multiple token sources (header, form, query)
-- 11 tests covering all attack scenarios
-
-**Database Migrations** (`migration/migration.go`)
-- Version-based Up/Down migrations
-- Rollback, Reset, Redo support
-- 11 tests for all migration scenarios
-
-**Transaction Management** (`transaction/transaction.go`)
-- Auto commit/rollback with `WithTx()`
-- Nested transactions via savepoints
-- Retry on deadlock, read-only mode
-- 10 tests for transaction patterns
-
-**OpenAPI Generation** (`openapi/openapi.go`)
-- Auto-generate OpenAPI 3.0 spec from handlers
-- Type reflection for request/response schemas
-- Validation rules extraction
-- 9 tests for spec generation
-
-```go
-// Example usage
-import (
-    "github.com/madcok-co/unicorn/core/pkg/middleware"
-    "github.com/madcok-co/unicorn/core/pkg/migration"
-    "github.com/madcok-co/unicorn/core/pkg/transaction"
-    "github.com/madcok-co/unicorn/core/pkg/openapi"
-)
-
-// Middleware
-logger := middleware.RequestResponseLogger(appLogger)
-compress := middleware.Compress()
-csrf := middleware.CSRF()
-
-// Database migrations
-migrator := migration.New(&migration.Config{Database: db})
-migrator.Register(1, "create_users", &CreateUsersTable{})
-migrator.Up(ctx)
-
-// Transactions
-err := transaction.WithTx(ctx, db, func(txCtx context.Context) error {
-    // Your database operations here
-    return nil // commit on success, rollback on error
-})
-
-// OpenAPI generation
-generator := openapi.NewGenerator(&openapi.Config{
-    Info: openapi.Info{Title: "My API", Version: "1.0.0"},
-})
-spec, _ := generator.Generate()
-```
-
-**Test Coverage:** All features are production-ready with comprehensive test suites:
-- 77 total tests across all new features
-- 100% passing rate
-- Tests cover: happy paths, edge cases, error handling, security scenarios
-
-### Resilience Patterns
-
-Built-in fault tolerance patterns:
-
-```go
-import "github.com/madcok-co/unicorn/core/pkg/resilience"
-
-// Circuit Breaker - prevent cascading failures
-cb := resilience.NewCircuitBreaker(&resilience.CircuitBreakerConfig{
-    MaxRequests: 3,
-    Timeout:     30 * time.Second,
-})
-err := cb.Execute(func() error {
-    return callExternalService()
-})
-
-// Retry with exponential backoff
-retryer := resilience.NewRetryer(&resilience.RetryConfig{
-    MaxAttempts:     3,
-    InitialInterval: 100 * time.Millisecond,
-    Multiplier:      2.0,
-})
-err := retryer.Do(func() error {
-    return unreliableOperation()
-})
-
-// Combine patterns for robust external calls
-err := cb.ExecuteWithRetry(retryer, func() error {
-    return callExternalService()
-})
-```
+- **ManagementServer** — Kubernetes probes, Prometheus metrics, pprof
+- **ConfigWatcher** — Hot-reload config without restart
+- **ServiceRegistrar** — Auto register/deregister with Consul
+- **SecretRotator** — Rotate credentials from Vault/K8s secrets
+- **Trigger Sidecars** — Run HTTP, Broker, Cron as isolated sidecars
 
 ## Performance
 
@@ -684,21 +528,26 @@ Unicorn is optimized for high performance:
 BenchmarkContextAcquire-8    30683319    38.26 ns/op    0 B/op    0 allocs/op
 ```
 
-See [docs/benchmarks.md](./docs/benchmarks.md) for detailed benchmarks.
+See [docs/PERFORMANCE.md](./docs/PERFORMANCE.md) for deep-dive optimization and [docs/benchmarks.md](./docs/benchmarks.md) for raw benchmark numbers.
 
 ## Documentation
 
 - [Getting Started](./docs/getting-started.md) - Installation and first app
 - [Architecture](./docs/architecture.md) - Framework design
 - [Handlers & Triggers](./docs/handlers.md) - Handler patterns
+- [Middleware](./docs/middleware.md) - Production middleware
 - [Custom Services](./docs/custom-services.md) - Dependency injection
-- [Security](./docs/security.md) - Authentication, authorization, encryption
+- [Security](./docs/security.md) - Authentication, authorization
 - [Observability](./docs/observability.md) - Metrics, tracing, logging
-- [Benchmarks](./docs/benchmarks.md) - Performance benchmarks
-- [Framework Comparison](./docs/comparison.md) - vs Gin, Echo, Fiber, etc.
-- [API Reference](./docs/api-reference.md) - Complete API documentation
-- [Best Practices](./docs/best-practices.md) - Production recommendations
-- [Examples](./docs/examples.md) - Complete example applications
+- [Resilience](./docs/resilience.md) - Circuit breaker, retry
+- [Sidecar Pattern](./docs/sidecar.md) - Cross-cutting sidecars
+- [Performance](./docs/PERFORMANCE.md) - Optimization guide + FAQ
+- [Benchmarks](./docs/benchmarks.md) - Performance numbers
+- [Comparison](./docs/comparison.md) - vs Gin, Echo, Fiber
+- [Migration Guide](./docs/migration-guide.md) - Migrate to Unicorn
+- [API Reference](./docs/api-reference.md) - Complete API
+- [Best Practices](./docs/best-practices.md) - Production checklist
+- [Examples](./docs/examples.md) - Complete example apps
 
 ## Examples
 
