@@ -1,0 +1,9 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 80 92" role="img" aria-label="Unicorn Framework — Geo Head">
+  <polygon points="40,4 49,27 31,27" fill="#00D4FF"></polygon>
+  <polygon points="10,27 70,27 79,55 40,84 1,55" fill="#7C3AED"></polygon>
+  <polygon points="1,55 40,84 79,55 71,70 40,78 9,70" fill="#3B0764"></polygon>
+  <circle cx="26" cy="47" r="5.5" fill="white"></circle>
+  <circle cx="54" cy="47" r="5.5" fill="white"></circle>
+  <circle cx="27" cy="48" r="3.2" fill="#0A0A0F"></circle>
+  <circle cx="55" cy="48" r="3.2" fill="#0A0A0F"></circle>
+</svg>

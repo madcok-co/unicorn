@@ -1,0 +1,14 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 32 32" role="img" aria-label="Unicorn Framework favicon">
+  <rect width="32" height="32" rx="7" fill="#111118"></rect>
+  <svg viewBox="0 0 80 90" x="10" y="10" width="11" height="12" preserveAspectRatio="xMidYMid meet">
+  <circle cx="40" cy="57" r="30" fill="#7C3AED"></circle>
+  <polygon points="40,4 51,32 29,32" fill="#00D4FF"></polygon>
+  <ellipse cx="28" cy="51" rx="7.5" ry="8.5" fill="white"></ellipse>
+  <ellipse cx="52" cy="51" rx="7.5" ry="8.5" fill="white"></ellipse>
+  <circle cx="29" cy="52" r="4.5" fill="#0A0A0F"></circle>
+  <circle cx="53" cy="52" r="4.5" fill="#0A0A0F"></circle>
+  <circle cx="31" cy="50" r="1.8" fill="white" opacity=".75"></circle>
+  <circle cx="55" cy="50" r="1.8" fill="white" opacity=".75"></circle>
+  <ellipse cx="40" cy="66" rx="6.5" ry="4.5" fill="#4C1D95"></ellipse>
+  </svg>
+</svg>

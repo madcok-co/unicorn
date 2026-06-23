@@ -1,4 +1,8 @@
-# Unicorn Framework
+<picture>
+  <source media="(prefers-color-scheme: dark)"  srcset="./assets/readme-header-dark.svg">
+  <source media="(prefers-color-scheme: light)" srcset="./assets/readme-header-light.svg">
+  <img src="./assets/readme-header-dark.svg" alt="Unicorn Framework" width="100%">
+</picture>
 
 A batteries-included Go framework where developers only need to focus on business logic.
 

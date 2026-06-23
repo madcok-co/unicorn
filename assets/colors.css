@@ -1,0 +1,24 @@
+/* Unicorn Framework — Color System
+ * github.com/madcok-co/unicorn · MIT License
+ */
+
+:root {
+  /* Brand */
+  --uc-primary:     #7C3AED;  /* Violet — primary CTA, links       */
+  --uc-accent:      #00D4FF;  /* Cyan   — highlights, code, badges */
+
+  /* Surfaces */
+  --uc-bg:          #0A0A0F;  /* Page background                   */
+  --uc-surface:     #111118;  /* Cards, sidebars, elevated         */
+  --uc-border:      #1E1E2E;  /* Dividers, outlines                */
+
+  /* Text */
+  --uc-text:        #E4E4E7;  /* Primary text                      */
+  --uc-text-muted:  #71717A;  /* Secondary / captions              */
+  --uc-text-faint:  #52525B;  /* Placeholders, metadata            */
+
+  /* Semantic */
+  --uc-success:     #10B981;  /* Emerald — pass, build success     */
+  --uc-warning:     #F59E0B;  /* Amber   — deprecation, slow       */
+  --uc-error:       #F43F5E;  /* Rose    — error, failure          */
+}
