@@ -4,6 +4,8 @@
   <img src="./assets/readme-header-dark.svg" alt="Unicorn Framework" width="100%">
 </picture>
 
+![Project Logo](./logo.png)
+
 A batteries-included Go framework where developers only need to focus on business logic.
 
 [![Go Version](https://img.shields.io/badge/Go-1.24+-00ADD8?style=flat&logo=go)](https://go.dev)
